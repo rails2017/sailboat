@@ -1,0 +1,6 @@
+#!/usr/bin/env ruby
+
+require "sailboat"
+require "sailboat/cli"
+
+Sailboat::CLI.start
