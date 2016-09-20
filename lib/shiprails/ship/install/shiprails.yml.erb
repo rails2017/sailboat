@@ -12,6 +12,7 @@ services:
 <%- services.each do |service| -%>
   <%= service[:name] %>:
     command: '<%= service[:command] %>'
+    image: '<%= service[:image] %>'
 <%- if service[:ports].any? -%>
     ports:
 <%- service[:ports].each do |port| -%>

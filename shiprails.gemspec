@@ -21,6 +21,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "activesupport", "~> 5"
   spec.add_dependency "aws-sdk", "~> 2"
+  spec.add_dependency "git", "~> 1.3"
   spec.add_dependency "thor", "~> 0.14"
   spec.add_dependency "s3_config", "~> 0.1.0"
 

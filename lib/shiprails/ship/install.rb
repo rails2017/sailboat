@@ -62,12 +62,17 @@ module Shiprails
       def services
         return @services unless @services.nil?
         docker_compose = YAML.load(File.read("#{options[:path]}/docker-compose.yml")).deep_symbolize_keys
+        image_for_build = {}
         regions_for_build = {}
         @services = docker_compose[:services].map do |service_name, service|
           next if [:test].include? service_name
           if service[:image].nil?
             build_name = service[:build]
             build_name = "Dockerfile" if build_name == '.'
+            unless image = image_for_build[build_name]
+              image = service_name
+              image_for_build[build_name] = image
+            end
             unless regions = regions_for_build[build_name]
               regions = @regions.map do |region|
                 [region, {
@@ -78,6 +83,7 @@ module Shiprails
             end
             {
               command: service[:command],
+              image: image,
               name: service_name.to_s,
               ports: (service[:ports] || []),
               regions: regions,
