@@ -2,8 +2,8 @@ require "active_support/all"
 require "aws-sdk"
 require "thor/group"
 
-module Sailboat
-  class CLI < Thor
+module Shiprails
+  class Ship < Thor
     class Install < Thor::Group
       include Thor::Actions
 
@@ -122,7 +122,7 @@ EOF
       end
 
       def create_configuration
-        template("sailboat.yml.erb", "#{options[:path]}/.sailboat.yml")
+        template("shiprails.yml.erb", "#{options[:path]}/.shiprails.yml")
       end
 
       private

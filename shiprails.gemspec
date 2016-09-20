@@ -1,17 +1,17 @@
 # coding: utf-8
 lib = File.expand_path('../lib', __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
-require 'sailboat/version'
+require 'shiprails/version'
 
 Gem::Specification.new do |spec|
-  spec.name          = "sailboat"
-  spec.version       = Sailboat::VERSION
+  spec.name          = "shiprails"
+  spec.version       = Shiprails::VERSION
   spec.authors       = ["Zane Shannon"]
   spec.email         = ["zcs@smileslaughs.com"]
 
-  spec.summary       = %q{Sailboat helps you deploy Rails to AWS ECS.}
-  spec.description   = %q{Sailboat aims to provide Heroku's CLI APIs for AWS ECS.}
-  spec.homepage      = "https://github.com/rails2017/sailboat"
+  spec.summary       = %q{Shiprails helps you deploy Rails to AWS ECS.}
+  spec.description   = %q{Shiprails aims to provide Heroku's Ship APIs for AWS ECS.}
+  spec.homepage      = "https://github.com/rails2017/shiprails"
   spec.license       = "MIT"
 
   spec.files         = `git ls-files -z`.split("\x0").reject { |f| f.match(%r{^(test|spec|features)/}) }
@@ -28,8 +28,7 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "rake", "~> 10.0"
   spec.add_development_dependency "rspec"
 
-  spec.executables << "sailboat"
-  spec.executables << "sbbundle"
-  spec.executables << "sbrails"
-  spec.executables << "sbstart"
+  spec.executables << "port"
+  spec.executables << "ship"
+
 end

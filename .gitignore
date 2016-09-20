@@ -10,7 +10,7 @@
 .rbenv-vars
 
 # Ignore work products
-.sailboat.yml
+.shiprails.yml
 .env.example
 docker-compose.yml
 Dockerfile

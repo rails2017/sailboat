@@ -2,8 +2,8 @@ require "active_support/all"
 require "aws-sdk"
 require "thor/group"
 
-module Sailboat
-  class CLI < Thor
+module Shiprails
+  class Ship < Thor
     class Deploy < Thor::Group
       include Thor::Actions
 
@@ -37,7 +37,7 @@ module Sailboat
       private
 
       def configuration
-        YAML.load File.read "#{options[:path]}/.sailboat.yml"
+        YAML.load File.read "#{options[:path]}/.shiprails.yml"
       end
 
     end

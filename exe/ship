@@ -1,0 +1,6 @@
+#!/usr/bin/env ruby
+
+require "shiprails"
+require "shiprails/ship"
+
+Shiprails::Ship.start

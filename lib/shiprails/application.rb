@@ -2,7 +2,7 @@ require "aws-sdk"
 require "erb"
 require "yaml"
 
-module Sailboat
+module Shiprails
   class Application
 
     def initialize(options = {})

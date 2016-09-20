@@ -1,29 +1,29 @@
 require "active_support/all"
 require "thor"
 
-module Sailboat
-  class CLI < Thor
-    # sailboat install
+module Shiprails
+  class Ship < Thor
+    # ship install
 
-    desc "install", "Install Sailboat"
+    desc "install", "Install Shiprails"
 
     method_option "path",
       aliases: ["-p"],
-      default: ".sailboat.yml",
+      default: ".shiprails.yml",
       desc: "Specify a configuration file path"
 
     def install
-      require "sailboat/cli/install"
+      require "shiprails/ship/install"
       Install.start
     end
 
-    # sailboat config
+    # ship config
 
     desc "config", "Configure services"
 
     method_option "path",
       aliases: ["-p"],
-      default: ".sailboat.yml",
+      default: ".shiprails.yml",
       desc: "Specify a configuration file path"
 
     def config(*command)
@@ -35,54 +35,54 @@ module Sailboat
       end
     end
 
-    # sailboat deploy
+    # ship deploy
 
     desc "deploy", "Deploy services"
 
     method_option "path",
       aliases: ["-p"],
-      default: ".sailboat.yml",
+      default: ".shiprails.yml",
       desc: "Specify a configuration file path"
 
     def deploy
-      require "sailboat/cli/deploy"
+      require "shiprails/ship/deploy"
       Deploy.start
     end
 
-    # sailboat logs
+    # ship logs
 
     desc "logs", "Fetch logs"
 
     method_option "path",
       aliases: ["-p"],
-      default: ".sailboat.yml",
+      default: ".shiprails.yml",
       desc: "Specify a configuration file path"
 
     def logs
       say "TODO: fetch logs"
     end
 
-    # sailboat run
+    # ship run
 
     desc "exec", "Execute one off commands"
 
     method_option "path",
       aliases: ["-p"],
-      default: ".sailboat.yml",
+      default: ".shiprails.yml",
       desc: "Specify a configuration file path"
 
     def exec(*command)
-      require "sailboat/cli/exec"
+      require "shiprails/ship/exec"
       Exec.new.run_command command.join(' ')
     end
 
-    # sailboat scale
+    # ship scale
 
     desc "scale", "Change minimum/maximum service instances"
 
     method_option "path",
       aliases: ["-p"],
-      default: ".sailboat.yml",
+      default: ".shiprails.yml",
       desc: "Specify a configuration file path"
 
     def scale
@@ -92,7 +92,7 @@ module Sailboat
     private
 
     def configuration
-      YAML.load(File.read(".sailboat.yml")).deep_symbolize_keys
+      YAML.load(File.read(".shiprails.yml")).deep_symbolize_keys
     end
 
   end
