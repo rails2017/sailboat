@@ -66,7 +66,7 @@ module Shiprails
         end
 
         def aws_access_key_secret
-          @aws_access_key_secret ||= ask "AWS Access Key Secret", default: ENV.fetch("AWS_ACCESS_KEY_SECRET")
+          @aws_access_key_secret ||= ask "AWS Access Key Secret", default: ENV.fetch("AWS_SECRET_ACCESS_KEY")
         end
       }
 
