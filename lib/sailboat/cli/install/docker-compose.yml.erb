@@ -1,0 +1,81 @@
+version: '2'
+
+services:
+  memcached:
+    image: memcached
+  postgres:
+    environment:
+      LC_ALL: C.UTF-8
+    image: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+  redis:
+    command: redis-server --appendonly yes
+    image: redis
+    volumes:
+      - redis-data:/var/lib/redis
+  app: &app_base
+    build: .
+    command: ./bin/start
+    depends_on:
+      - memcached
+      - postgres
+      - redis
+    environment: &app_environment
+      # PostgreSQL Development Database:
+      DATABASE_URL: postgres://postgres:@postgres:5432/development?pool=25&encoding=unicode&schema_search_path=public
+      # memcached Development Cache:
+      MEMCACHED_URL: memcached:11211
+      # Redis Database:
+      REDIS_URL: redis://redis:6379
+      DOCKERIZED: 1
+      POOL_SIZE: 5
+
+      # Sidekiq configuration:
+      SIDEKIQ_CONCURRENCY: 5
+      SIDEKIQ_TIMEOUT: 10
+
+      # Enable the byebug debugging server - this can be overriden
+      # from the command line:
+      ENABLE_DEBUG_SERVER: 0
+
+      # Run the app in the 'development' environment:
+      RACK_ENV: development
+    env_file: .env
+    ports:
+      - "3000:3000"
+    stdin_open: true
+    tmpfs: /app/tmp
+    volumes:
+      - ".:/app"
+      - gems-data:/bundle
+  worker:
+    <<: *app_base
+    command: bundle exec sidekiq -C config/sidekiq.yml
+    ports: []
+  cable:
+    <<: *app_base
+    command: bundle exec puma --bind tcp://0.0.0.0:28080 cable/config.ru
+    ports:
+      - 28080:28080
+  # App Guard: Keeps running tests on a separate process:
+  test:
+    <<: *app_base # We copy from &app_base, and override:
+    command: bundle exec guard start --no-bundler-warning --no-interactions
+    environment:
+      <<: *app_environment
+      # PostgreSQL Test Database:
+      DATABASE_URL: postgres://postgres:@postgres:5432/test?pool=25&encoding=unicode&schema_search_path=public
+
+      # Run the app in the 'test' environment, instead of the default 'developent'
+      RACK_ENV: test
+      RAILS_ENV: test
+    ports: []
+
+volumes:
+  gems-data:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local

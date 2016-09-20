@@ -8,3 +8,12 @@
 /spec/reports/
 /tmp/
 .rbenv-vars
+
+# Ignore work products
+.sailboat.yml
+.env.example
+docker-compose.yml
+Dockerfile
+
+# Ignore Docker ENV
+/.env

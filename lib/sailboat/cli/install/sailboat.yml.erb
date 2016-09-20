@@ -1,0 +1,31 @@
+project_name: '<%= project_name %>'
+environments:
+<%- environments.each do |environment| -%>
+  <%= environment[:name] %>:
+    regions:
+<%- environment[:regions].each do |region| -%>
+      - '<%= region %>'
+<%- end -%>
+<%- end -%>
+services:
+<%- services.each do |service| -%>
+  <%= service[:name] %>:
+    command: '<%= service[:command] %>'
+<%- if service[:ports].any? -%>
+    ports:
+<%- service[:ports].each do |port| -%>
+      - '<%= port %>'
+<%- end -%>
+<%- end -%>
+    regions:
+<%- service[:regions].each do |region, data| -%>
+      <%= region %>:
+<%- data.each do |k,v| -%>
+        <%= k %>: '<%= v %>'
+<%- end -%>
+<%- end -%>
+    resources:
+<%- service[:resources].each do |k,v| -%>
+      <%= k %>: <%= v %>
+<%- end -%>
+<%- end -%>
