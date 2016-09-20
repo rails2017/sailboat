@@ -46,7 +46,7 @@ module Shiprails
           end
         end
         repository_urls_to_regions.each do |repository_url, region|
-          run "aws ecr get-login --region #{region}"
+          run "`aws ecr get-login --region #{region}`"
           run "docker push #{repository_url}:#{git_sha}"
         end
       end
