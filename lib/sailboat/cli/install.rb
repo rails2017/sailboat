@@ -30,6 +30,23 @@ module Sailboat
         end
       }
 
+      def config_s3_bucket
+        return @bucket_name unless @bucket_name.nil?
+        @_s3_client ||= Aws::S3::Client.new(region: ENV.fetch("AWS_REGION", "us-west-2"), access_key_id: aws_access_key_id, secret_access_key: aws_access_key_secret)
+        begin
+          bucket_name = "#{project_name}-config"
+          bucket_name = ask "S3 bucket name for configuration store", default: bucket_name
+          resp = @_s3_client.create_bucket({
+            bucket: bucket_name
+          })
+        rescue Aws::S3::Errors::BucketAlreadyExists
+          error "'#{bucket_name}' already exists"
+          retry
+        rescue Aws::S3::Errors::BucketAlreadyOwnedByYou
+        end
+        @bucket_name = bucket_name
+      end
+
       def environments
         environments = Dir.entries("#{Dir.getwd}/config/environments").grep(/\.rb$/).map { |fname| fname.chomp!(".rb") }.select{ |e| !['development', 'test'].include? e } rescue ['production']
         environments ||= ['production']
