@@ -28,4 +28,7 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "rspec"
 
   spec.executables << "sailboat"
+  spec.executables << "sbbundle"
+  spec.executables << "sbrails"
+  spec.executables << "sbstart"
 end
