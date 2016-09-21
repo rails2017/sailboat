@@ -13,18 +13,21 @@ module Shiprails
         default: ".",
         desc: "Specify a configuration path"
 
-      def build_docker_images
-        run "docker-compose build"
-      end
-
       def check_git_status
         if git.status.added.any? or git.status.changed.any? or git.status.deleted.any?
-          error "You have uncommitted changes. Commit and try again."
-          exit
+          say "You have uncommitted changes. Commit and try again.", :red
+          # exit
         end
       end
 
+      def build_docker_images
+        say "Building images..."
+        run "docker-compose build"
+        say "Build complete", :green
+      end
+
       def tag_docker_images
+        say "Tagging images..."
         commands = []
         configuration[:services].each do |service_name, service|
           image_name = "#{project_name}_#{service[:image]}"
@@ -35,9 +38,11 @@ module Shiprails
         end
         commands.uniq!
         commands.each { |c| run c }
+        say "Tagging complete.", :green
       end
 
       def push_docker_images
+        say "Pushing images..."
         repository_urls_to_regions = {}
         configuration[:services].each do |service_name, service|
           image_name = "#{project_name}_#{service[:image]}"
@@ -49,28 +54,72 @@ module Shiprails
           run "`aws ecr get-login --region #{region}`"
           run "docker push #{repository_url}:#{git_sha}"
         end
+        say "Push complete.", :green
       end
 
       def update_ecs_services
+        say "Updating ECS services..."
         configuration[:services].each do |service_name, service|
-          service[:regions].each do |region, values|
-            say "TODO: update ECS task #{service_name} in #{region}"
-            say "TODO: update ECS service #{service_name} in #{region}"
+          image_name = "#{project_name}_#{service_name}"
+          service[:regions].each do |region_name, region|
+            ecs = Aws::ECS::Client.new(region: region_name.to_s)
+            region[:environments].each do |environment_name|
+              cluster_name = "#{project_name}_#{environment_name}"
+              task_name = "#{image_name}_#{environment_name}"
+              image_name = "#{region[:repository_url]}/#{image_name}:#{git_sha}"
+              begin
+                task_definition_description = ecs.describe_task_definition({task_definition: task_name})
+                task_definition = task_definition_description.task_definition.to_hash
+                task_definition.delete :task_definition_arn
+                task_definition.delete :revision
+                task_definition.delete :status
+                task_definition.delete :requires_attributes
+              rescue Aws::ECS::Errors::ClientException => e
+                say "Missing ECS task for #{task_name}!", :red
+                say "Run `ship setup`", :red
+                exit
+              end
+              task_definition[:container_definitions][0][:cpu] = service[:resources][:cpu_units]
+              task_definition[:container_definitions][0][:image] = image_name
+              task_definition[:container_definitions][0][:memory] = service[:resources][:memory_units]
+              task_definition[:container_definitions][0][:environment] = [
+                # TODO: set config version
+                { name: "GIT_SHA", value: git_sha },
+                { name: "RACK_ENV", value: environment_name },
+                { name: "S3_CONFIG_BUCKET", value: config_s3_bucket }
+              ]
+              task_definition_response = ecs.register_task_definition(task_definition)
+              begin
+                service_response = ecs.update_service({
+                  cluster: cluster_name,
+                  service: service_name,
+                  task_definition: task_definition_response.task_definition.task_definition_arn
+                })
+                say "Updated #{service_name}.", :green
+              rescue Aws::ECS::Errors::ServiceNotFoundException, Aws::ECS::Errors::ServiceNotActiveException => e
+                say "Missing ECS service for #{task_name}!", :red
+                say "Run `ship setup`", :red
+                exit
+              end
+            end
           end
         end
+        say "ECS services updated.", :green
       end
 
-      no_commands {
-        def aws_access_key_id
-          @aws_access_key_id ||= ask "AWS Access Key ID", default: ENV.fetch("AWS_ACCESS_KEY_ID")
-        end
-
-        def aws_access_key_secret
-          @aws_access_key_secret ||= ask "AWS Access Key Secret", default: ENV.fetch("AWS_SECRET_ACCESS_KEY")
-        end
-      }
+      def done
+        say "Deploy complete!", :green
+      end
 
       private
+
+      def aws_access_key_id
+        @aws_access_key_id ||= ask "AWS Access Key ID", default: ENV.fetch("AWS_ACCESS_KEY_ID")
+      end
+
+      def aws_access_key_secret
+        @aws_access_key_secret ||= ask "AWS Access Key Secret", default: ENV.fetch("AWS_SECRET_ACCESS_KEY")
+      end
 
       def configuration
         YAML.load(File.read("#{options[:path]}/.shiprails.yml")).deep_symbolize_keys
@@ -86,6 +135,10 @@ module Shiprails
 
       def project_name
         configuration[:project_name]
+      end
+
+      def config_s3_bucket
+        configuration[:config_s3_bucket]
       end
 
     end

@@ -1,12 +1,4 @@
 config_s3_bucket: '<%= config_s3_bucket %>'
-environments:
-<%- environments.each do |environment| -%>
-  <%= environment[:name] %>:
-    regions:
-<%- environment[:regions].each do |region| -%>
-      - '<%= region %>'
-<%- end -%>
-<%- end -%>
 project_name: '<%= project_name %>'
 services:
 <%- services.each do |service| -%>
@@ -16,12 +8,16 @@ services:
 <%- if service[:ports].any? -%>
     ports:
 <%- service[:ports].each do |port| -%>
-      - '<%= port %>'
+      - <%= port %>
 <%- end -%>
 <%- end -%>
     regions:
 <%- service[:regions].each do |region, data| -%>
       <%= region %>:
+        environments:
+<%- environments.each do |environment| -%>
+          - <%= environment[:name] %>
+<%- end -%>
 <%- data.each do |k,v| -%>
         <%= k %>: '<%= v %>'
 <%- end -%>

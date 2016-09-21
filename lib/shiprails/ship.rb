@@ -3,29 +3,32 @@ require "thor"
 
 module Shiprails
   class Ship < Thor
-    # ship install
 
     desc "install", "Install Shiprails"
-
     method_option "path",
       aliases: ["-p"],
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
-
     def install
       require "shiprails/ship/install"
       Install.start
     end
 
-    # ship config
-
-    desc "config", "Configure services"
-
+    desc "setup", "Setup a Shiprails environment"
     method_option "path",
       aliases: ["-p"],
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
+    def setup
+      require "shiprails/ship/setup"
+      Setup.start
+    end
 
+    desc "config", "Configure services"
+    method_option "path",
+      aliases: ["-p"],
+      default: ".shiprails.yml",
+      desc: "Specify a configuration file path"
     def config(*command)
       command_string = command.join ' '
       result = `S3_CONFIG_BUCKET=#{configuration[:config_s3_bucket]} bundle exec config #{command_string}`
@@ -35,56 +38,40 @@ module Shiprails
       end
     end
 
-    # ship deploy
-
     desc "deploy", "Deploy services"
-
     method_option "path",
       aliases: ["-p"],
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
-
     def deploy
       require "shiprails/ship/deploy"
       Deploy.start
     end
 
-    # ship logs
-
     desc "logs", "Fetch logs"
-
     method_option "path",
       aliases: ["-p"],
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
-
     def logs
       say "TODO: fetch logs"
     end
 
-    # ship run
-
     desc "exec", "Execute one off commands"
-
     method_option "path",
       aliases: ["-p"],
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
-
     def exec(*command)
       require "shiprails/ship/exec"
       Exec.new.run_command command.join(' ')
     end
 
-    # ship scale
-
     desc "scale", "Change minimum/maximum service instances"
-
     method_option "path",
       aliases: ["-p"],
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
-
     def scale
       say "TODO: change service scale"
     end

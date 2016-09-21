@@ -59,6 +59,7 @@ module Shiprails
         end
       end
 
+      no_commands {
       def services
         return @services unless @services.nil?
         docker_compose = YAML.load(File.read("#{options[:path]}/docker-compose.yml")).deep_symbolize_keys
@@ -85,7 +86,7 @@ module Shiprails
               command: service[:command],
               image: image,
               name: service_name.to_s,
-              ports: (service[:ports] || []),
+              ports: (service[:ports] || []).map{ |port| port.split(":").last },
               regions: regions,
               resources: {
                 cpu_units: 256,
@@ -103,6 +104,7 @@ module Shiprails
       def ruby_version
         "#{RUBY_VERSION}"
       end
+      }
 
       def create_dockerfile
         template("Dockerfile.erb", "#{options[:path]}/Dockerfile")
