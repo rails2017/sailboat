@@ -67,13 +67,14 @@ module Shiprails
       Exec.new.run_command command.join(' ')
     end
 
-    desc "scale", "Change minimum/maximum service instances"
+    desc "scale ENVIRONMENT SERVICE PROCESS_COUNT", "Change service instances"
     method_option "path",
       aliases: ["-p"],
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
-    def scale
-      say "TODO: change service scale"
+    def scale(*args)
+      require "shiprails/ship/scale"
+      Scale.start
     end
 
     private

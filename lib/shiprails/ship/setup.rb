@@ -111,6 +111,10 @@ module Shiprails
               task_definition = task_definition_response.task_definition.to_hash
               ecs_service = {
                 cluster: cluster_name,
+                deployment_configuration: {
+                  maximum_percent: 200,
+                  minimum_healthy_percent: 50,
+                },
                 desired_count: 0,
                 service_name: service_name,
                 task_definition: task_definition_response.task_definition.task_definition_arn

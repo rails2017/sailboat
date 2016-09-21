@@ -82,11 +82,12 @@ module Shiprails
               task_definition[:container_definitions][0][:cpu] = service[:resources][:cpu_units]
               task_definition[:container_definitions][0][:image] = image_name
               task_definition[:container_definitions][0][:memory] = service[:resources][:memory_units]
+              config_s3_version = task_definition[:container_definitions][0][:environment].find{|e| e[:name] == "S3_CONFIG_VERSION" }[:value]
               task_definition[:container_definitions][0][:environment] = [
-                # TODO: set config version
                 { name: "GIT_SHA", value: git_sha },
                 { name: "RACK_ENV", value: environment_name },
-                { name: "S3_CONFIG_BUCKET", value: config_s3_bucket }
+                { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
+                { name: "S3_CONFIG_VERSION", value: config_s3_version }
               ]
               task_definition_response = ecs.register_task_definition(task_definition)
               begin
