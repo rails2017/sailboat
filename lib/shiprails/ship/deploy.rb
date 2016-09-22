@@ -30,7 +30,7 @@ module Shiprails
         say "Tagging images..."
         commands = []
         configuration[:services].each do |service_name, service|
-          image_name = "#{project_name}_#{service[:image]}"
+          image_name = "#{compose_project_name}_#{service[:image]}"
           service[:regions].each do |region, values|
             repository_url = values[:repository_url]
             commands << "docker tag #{image_name} #{repository_url}:#{git_sha}"
@@ -45,7 +45,6 @@ module Shiprails
         say "Pushing images..."
         repository_urls_to_regions = {}
         configuration[:services].each do |service_name, service|
-          image_name = "#{project_name}_#{service[:image]}"
           service[:regions].each do |region, values|
             repository_urls_to_regions[values[:repository_url]] = region
           end
@@ -65,7 +64,7 @@ module Shiprails
             ecs = Aws::ECS::Client.new(region: region_name.to_s)
             region[:environments].each do |environment_name|
               cluster_name = "#{project_name}_#{environment_name}"
-              task_name = "#{image_name}_#{environment_name}"
+              task_name = "#{project_name}_#{service_name}_#{environment_name}"
               image_name = "#{region[:repository_url]}/#{image_name}:#{git_sha}"
               begin
                 task_definition_description = ecs.describe_task_definition({task_definition: task_name})
@@ -159,6 +158,10 @@ module Shiprails
 
       def project_name
         configuration[:project_name]
+      end
+
+      def compose_project_name
+        project_name.gsub /[^0-9a-zA-Z]i/, ''
       end
 
       def config_s3_bucket
