@@ -15,6 +15,11 @@ module Shiprails
 
       class_option "region",
         desc: "Specify region"
+      class_option "path",
+        aliases: ["-p"],
+        default: ".",
+        desc: "Specify a configuration path"
+
       def update_ecs_services
         say "Setting ECS service #{service} scale=#{scale} in #{environment}..."
         configuration[:services].each do |service_name, service|
@@ -64,7 +69,7 @@ module Shiprails
       end
 
       def configuration
-        YAML.load(File.read(".shiprails.yml")).deep_symbolize_keys
+        YAML.load(File.read("#{options[:path]}/.shiprails.yml")).deep_symbolize_keys
       end
 
       def project_name

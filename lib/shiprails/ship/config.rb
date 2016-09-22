@@ -8,6 +8,11 @@ module Shiprails
     class Config < Thor::Group
       include Thor::Actions
 
+      class_option "path",
+        aliases: ["-p"],
+        default: ".",
+        desc: "Specify a configuration path"
+
       def update_s3_config
         command_string = args.join ' '
         result = `S3_CONFIG_BUCKET=#{configuration[:config_s3_bucket]} bundle exec config #{command_string}`
@@ -104,7 +109,7 @@ module Shiprails
       end
 
       def configuration
-        YAML.load(File.read(".shiprails.yml")).deep_symbolize_keys
+        YAML.load(File.read("#{options[:path]}/.shiprails.yml")).deep_symbolize_keys
       end
 
       def project_name

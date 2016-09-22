@@ -29,9 +29,9 @@ module Shiprails
       aliases: ["-p"],
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
-    def config(*command)
+    def config(*command_args)
       require "shiprails/ship/config"
-      Config.start command
+      Config.start command_args
     end
 
     desc "deploy", "Deploy services"
@@ -58,9 +58,9 @@ module Shiprails
       aliases: ["-p"],
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
-    def exec(*command)
+    def exec(*command_args)
       require "shiprails/ship/exec"
-      Exec.new.run_command command.join(' ')
+      Exec.start command_args
     end
 
     desc "scale ENVIRONMENT SERVICE PROCESS_COUNT", "Change service instances"
