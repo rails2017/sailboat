@@ -22,8 +22,30 @@ module Shiprails
 
       def build_docker_images
         say "Building images..."
-        run "docker-compose build"
+        commands = []
+        configuration[:services].each do |service_name, service|
+          image_name = "#{compose_project_name}_#{service[:image]}"
+          service[:regions].each do |region, values|
+            commands << "docker build -t #{image_name} ."
+          end
+        end
+        commands.uniq!
+        commands.each { |c| run c } # TODO: check that this succeeded
         say "Build complete", :green
+      end
+
+      def bundle_install
+        say "Bundle installing..."
+        commands = []
+        configuration[:services].each do |service_name, service|
+          image_name = "#{compose_project_name}_#{service[:image]}"
+          service[:regions].each do |region, values|
+            commands << "docker run #{image_name} bundle install"
+          end
+        end
+        commands.uniq!
+        commands.each { |c| run c } # TODO: check that this succeeded
+        say "Bundle install complete", :green
       end
 
       def tag_docker_images
@@ -37,7 +59,7 @@ module Shiprails
           end
         end
         commands.uniq!
-        commands.each { |c| run c }
+        commands.each { |c| run c } # TODO: check that this succeeded
         say "Tagging complete.", :green
       end
 
@@ -51,7 +73,7 @@ module Shiprails
         end
         repository_urls_to_regions.each do |repository_url, region|
           run "`aws ecr get-login --region #{region}`"
-          run "docker push #{repository_url}:#{git_sha}"
+          run "docker push #{repository_url}:#{git_sha}" # TODO: check that this succeeded
         end
         say "Push complete.", :green
       end
@@ -161,7 +183,7 @@ module Shiprails
       end
 
       def compose_project_name
-        project_name.gsub /[^0-9a-zA-Z]i/, ''
+        project_name.gsub /[^0-9a-zA-Z]/i, ''
       end
 
       def config_s3_bucket
