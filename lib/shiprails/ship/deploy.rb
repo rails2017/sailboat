@@ -16,7 +16,7 @@ module Shiprails
       def check_git_status
         if git.status.added.any? or git.status.changed.any? or git.status.deleted.any?
           say "You have uncommitted changes. Commit and try again.", :red
-          # exit
+          exit
         end
       end
 
