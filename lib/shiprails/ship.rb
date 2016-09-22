@@ -30,12 +30,8 @@ module Shiprails
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
     def config(*command)
-      command_string = command.join ' '
-      result = `S3_CONFIG_BUCKET=#{configuration[:config_s3_bucket]} bundle exec config #{command_string}`
-      puts result
-      if version = result.match(/Use version: v([0-9]+)/)[1] rescue false
-        say "TODO: update ECS service + task definitions to use config v#{version}"
-      end
+      require "shiprails/ship/config"
+      Config.start command
     end
 
     desc "deploy", "Deploy services"
@@ -54,7 +50,7 @@ module Shiprails
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
     def logs
-      say "TODO: fetch logs"
+      say "TODO: fetch logs", :blue
     end
 
     desc "exec", "Execute one off commands"

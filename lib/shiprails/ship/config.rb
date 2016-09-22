@@ -5,68 +5,25 @@ require "thor/group"
 
 module Shiprails
   class Ship < Thor
-    class Deploy < Thor::Group
+    class Config < Thor::Group
       include Thor::Actions
 
-      class_option "path",
-        aliases: ["-p"],
-        default: ".",
-        desc: "Specify a configuration path"
-
-      def check_git_status
-        if git.status.added.any? or git.status.changed.any? or git.status.deleted.any?
-          say "You have uncommitted changes. Commit and try again.", :red
-          # exit
-        end
-      end
-
-      def build_docker_images
-        say "Building images..."
-        run "docker-compose build"
-        say "Build complete", :green
-      end
-
-      def tag_docker_images
-        say "Tagging images..."
-        commands = []
-        configuration[:services].each do |service_name, service|
-          image_name = "#{project_name}_#{service[:image]}"
-          service[:regions].each do |region, values|
-            repository_url = values[:repository_url]
-            commands << "docker tag #{image_name} #{repository_url}:#{git_sha}"
-          end
-        end
-        commands.uniq!
-        commands.each { |c| run c }
-        say "Tagging complete.", :green
-      end
-
-      def push_docker_images
-        say "Pushing images..."
-        repository_urls_to_regions = {}
-        configuration[:services].each do |service_name, service|
-          image_name = "#{project_name}_#{service[:image]}"
-          service[:regions].each do |region, values|
-            repository_urls_to_regions[values[:repository_url]] = region
-          end
-        end
-        repository_urls_to_regions.each do |repository_url, region|
-          run "`aws ecr get-login --region #{region}`"
-          run "docker push #{repository_url}:#{git_sha}"
-        end
-        say "Push complete.", :green
+      def update_s3_config
+        command_string = args.join ' '
+        result = `S3_CONFIG_BUCKET=#{configuration[:config_s3_bucket]} bundle exec config #{command_string}`
+        puts result
+        @version = result.match(/New version: v([0-9]+)/)[1] rescue false
       end
 
       def update_ecs_tasks
-        say "Updating ECS tasks..."
+        return unless @version
+        say "Updating config version for ECS tasks..."
         configuration[:services].each do |service_name, service|
-          image_name = "#{project_name}_#{service_name}"
           service[:regions].each do |region_name, region|
             ecs = Aws::ECS::Client.new(region: region_name.to_s)
             region[:environments].each do |environment_name|
               cluster_name = "#{project_name}_#{environment_name}"
-              task_name = "#{image_name}_#{environment_name}"
-              image_name = "#{region[:repository_url]}/#{image_name}:#{git_sha}"
+              task_name = "#{project_name}_#{service_name}_#{environment_name}"
               begin
                 task_definition_description = ecs.describe_task_definition({task_definition: task_name})
                 task_definition = task_definition_description.task_definition.to_hash
@@ -79,18 +36,14 @@ module Shiprails
                 say "Run `ship setup`", :red
                 exit
               end
-              task_definition[:container_definitions][0][:cpu] = service[:resources][:cpu_units]
-              task_definition[:container_definitions][0][:image] = image_name
-              task_definition[:container_definitions][0][:memory] = service[:resources][:memory_units]
-              config_s3_version = task_definition[:container_definitions][0][:environment].find{|e| e[:name] == "S3_CONFIG_VERSION" }[:value]
-              task_definition[:container_definitions][0][:environment] = [
-                { name: "GIT_SHA", value: git_sha },
-                { name: "RACK_ENV", value: environment_name },
-                { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
-                { name: "S3_CONFIG_VERSION", value: config_s3_version }
-              ]
+              task_definition[:container_definitions][0][:environment].map! do |e|
+                if e[:name] == "S3_CONFIG_VERSION"
+                  e[:value] = "v#{@version}"
+                end
+                e
+              end
               task_definition_response = ecs.register_task_definition(task_definition)
-              say "Updated #{task_name}.", :green
+              say "Updated #{task_name} task."
             end
           end
         end
@@ -98,6 +51,7 @@ module Shiprails
       end
 
       def update_ecs_services
+        return unless @version
         say "Updating ECS services..."
         configuration[:services].each do |service_name, service|
           service[:regions].each do |region_name, region|
@@ -119,7 +73,7 @@ module Shiprails
                   service: service_name,
                   task_definition: task_definition_response.task_definition.task_definition_arn
                 })
-                say "Updated #{service_name}.", :green
+                say "Updated #{service_name} service."
               rescue Aws::ECS::Errors::ServiceNotFoundException, Aws::ECS::Errors::ServiceNotActiveException => e
                 say "Missing ECS service for #{task_name}!", :red
                 say "Run `ship setup`", :red
@@ -132,7 +86,11 @@ module Shiprails
       end
 
       def done
-        say "Deploy complete!", :green
+        unless @version
+          say "No config updates.", :green
+        else
+          say "Config update complete!", :green
+        end
       end
 
       private
@@ -146,23 +104,11 @@ module Shiprails
       end
 
       def configuration
-        YAML.load(File.read("#{options[:path]}/.shiprails.yml")).deep_symbolize_keys
-      end
-
-      def git
-        @_git ||= Git.open(Dir.getwd)
-      end
-
-      def git_sha
-        @_git_sha ||= git.object('HEAD').sha
+        YAML.load(File.read(".shiprails.yml")).deep_symbolize_keys
       end
 
       def project_name
         configuration[:project_name]
-      end
-
-      def config_s3_bucket
-        configuration[:config_s3_bucket]
       end
 
     end
