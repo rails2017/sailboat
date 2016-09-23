@@ -52,6 +52,7 @@ services:
     tmpfs: /app/tmp
     volumes:
       - ".:/app"
+    volumes_from:
       - gemsbox
   worker:
     <<: *app_base
