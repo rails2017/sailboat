@@ -42,8 +42,8 @@ module Shiprails
                 exit
               end
               task_definition[:container_definitions][0][:environment].map! do |e|
-                if e[:name] == "S3_CONFIG_VERSION"
-                  e[:value] = "v#{@version}"
+                if e[:name] == "S3_CONFIG_REVISION"
+                  e[:value] = "#{@version}"
                 end
                 e
               end

@@ -102,17 +102,18 @@ module Shiprails
                 say "Run `ship setup`", :red
                 exit
               end
-              if container = task_definition[:container_definitions].find{ |container| container[:name] == service_name }
+              if container = task_definition[:container_definitions].find{ |container| container[:name] == service_name.to_s }
                 container[:cpu] = service[:resources][:cpu_units]
                 container[:image] = image_name
                 container[:memory] = service[:resources][:memory_units]
-                config_s3_version = container[:environment].find{|e| e[:name] == "S3_CONFIG_VERSION" }[:value]
+                config_s3_version = container[:environment].find{|e| e[:name] == "S3_CONFIG_REVISION" }[:value]
                 container[:environment] = [
                   { name: "GIT_SHA", value: git_sha },
                   { name: "RACK_ENV", value: environment_name },
                   { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
-                  { name: "S3_CONFIG_VERSION", value: config_s3_version }
+                  { name: "S3_CONFIG_REVISION", value: config_s3_version }
                 ]
+                say "Updated #{service_name} container (#{image_name})."
               end
               # if container = task_definition[:container_definitions].find{ |container| container[:name] == 'gembox' }
               #   app_container[:image] = "#{image_name}-gembox"

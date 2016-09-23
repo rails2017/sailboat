@@ -39,9 +39,9 @@ module Shiprails
                       environment: [
                         { name: "RACK_ENV", value: environment_name },
                         { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
-                        { name: "S3_CONFIG_VERSION", value: "v0" }
+                        { name: "S3_CONFIG_REVISION", value: "0" }
                       ],
-                      image: "#{region[:repository_url]}/#{image_name}:latest",
+                      image: "#{region[:repository_url]}:latest",
                       memory: service[:resources][:memory_units],
                       name: service_name,
                       port_mappings: (service[:ports] || []).map { |port|
