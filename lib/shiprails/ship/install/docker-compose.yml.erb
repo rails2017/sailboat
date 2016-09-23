@@ -22,6 +22,7 @@ services:
     build: .
     command: ./bin/start
     depends_on:
+      - gembox
       - memcached
       - postgres
       - redis

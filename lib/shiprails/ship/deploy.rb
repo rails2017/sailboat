@@ -22,6 +22,7 @@ module Shiprails
 
       def build_docker_images
         say "Building images..."
+        commands = []
         configuration[:services].each do |service_name, service|
           image_name = "#{compose_project_name}_#{service[:image]}"
           service[:regions].each do |region, values|
