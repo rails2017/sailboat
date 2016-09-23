@@ -87,7 +87,7 @@ module Shiprails
             region[:environments].each do |environment_name|
               cluster_name = "#{project_name}_#{environment_name}"
               task_name = "#{project_name}_#{service_name}_#{environment_name}"
-              image_name = "#{region[:repository_url]}/#{image_name}:#{git_sha}"
+              image_name = "#{region[:repository_url]}:#{git_sha}"
               begin
                 task_definition_description = ecs.describe_task_definition({task_definition: task_name})
                 task_definition = task_definition_description.task_definition.to_hash
