@@ -53,7 +53,7 @@ services:
     volumes:
       - ".:/app"
     volumes_from:
-      - gemsbox
+      - gembox
   worker:
     <<: *app_base
     command: bundle exec sidekiq -C config/sidekiq.yml
