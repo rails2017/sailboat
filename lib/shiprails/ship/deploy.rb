@@ -55,7 +55,7 @@ module Shiprails
           image_name = "#{compose_project_name}_#{service[:image]}"
           service[:regions].each do |region, values|
             repository_url = values[:repository_url]
-            commands << "docker tag #{compose_project_name}_gembox #{repository_url}:#{git_sha}-gembox"
+            # commands << "docker tag #{compose_project_name}_gembox #{repository_url}:#{git_sha}-gembox"
             commands << "docker tag #{image_name} #{repository_url}:#{git_sha}"
           end
         end
@@ -74,7 +74,7 @@ module Shiprails
         end
         repository_urls_to_regions.each do |repository_url, region|
           run "`aws ecr get-login --region #{region}`"
-          run "docker push #{repository_url}:#{git_sha}-gembox" # TODO: check that this succeeded
+          # run "docker push #{repository_url}:#{git_sha}-gembox" # TODO: check that this succeeded
           run "docker push #{repository_url}:#{git_sha}" # TODO: check that this succeeded
         end
         say "Push complete.", :green
@@ -114,9 +114,9 @@ module Shiprails
                   { name: "S3_CONFIG_VERSION", value: config_s3_version }
                 ]
               end
-              if container = task_definition[:container_definitions].find{ |container| container[:name] == 'gembox' }
-                app_container[:image] = "#{image_name}-gembox"
-              end
+              # if container = task_definition[:container_definitions].find{ |container| container[:name] == 'gembox' }
+              #   app_container[:image] = "#{image_name}-gembox"
+              # end
               task_definition_response = ecs.register_task_definition(task_definition)
               say "Updated #{task_name}.", :green
             end

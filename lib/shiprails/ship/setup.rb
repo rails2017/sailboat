@@ -50,19 +50,7 @@ module Shiprails
                           host_port: 0,
                           protocol: "tcp"
                         }
-                      },
-                      volumes_from: [
-                        {
-                          source_container: "gembox",
-                          read_only: false
-                        }
-                      ]
-                    },
-                    {
-                      essential: true,
-                      image: "#{region[:repository_url]}/#{image_name}:latest-gembox",
-                      memory: 10,
-                      name: "gembox"
+                      }
                     }
                   ],
                   family: task_name

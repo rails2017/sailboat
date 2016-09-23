@@ -1,10 +1,6 @@
 version: '2'
 
 services:
-  gembox:
-    image: busybox
-    volumes:
-      - /gembox
   memcached:
     image: memcached
   postgres:
@@ -22,7 +18,6 @@ services:
     build: .
     command: ./bin/start
     depends_on:
-      - gembox
       - memcached
       - postgres
       - redis
@@ -53,8 +48,6 @@ services:
     tmpfs: /app/tmp
     volumes:
       - ".:/app"
-    volumes_from:
-      - gembox
   worker:
     <<: *app_base
     command: bundle exec sidekiq -C config/sidekiq.yml
