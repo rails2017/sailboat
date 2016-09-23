@@ -34,28 +34,40 @@ module Shiprails
                 task_definition = {
                   container_definitions: [
                     {
-                      name: service_name,
+                      cpu: service[:resources][:cpu_units],
                       essential: true,
                       environment: [
                         { name: "RACK_ENV", value: environment_name },
                         { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
                         { name: "S3_CONFIG_VERSION", value: "v0" }
                       ],
-                      image: "#{region[:repository_url]}/#{image_name}:latest"
+                      image: "#{region[:repository_url]}/#{image_name}:latest",
+                      memory: service[:resources][:memory_units],
+                      name: service_name,
+                      port_mappings: (service[:ports] || []).map { |port|
+                        {
+                          container_port: port,
+                          host_port: 0,
+                          protocol: "tcp"
+                        }
+                      },
+                      volumes_from: [
+                        {
+                          source_container: "gembox",
+                          read_only: false
+                        }
+                      ]
+                    },
+                    {
+                      essential: true,
+                      image: "#{region[:repository_url]}/#{image_name}:latest-gembox",
+                      memory: 10,
+                      name: "gembox"
                     }
                   ],
                   family: task_name
                 }
                 say "Creating new ECS task (#{task_name})!"
-              end
-              task_definition[:container_definitions][0][:cpu] = service[:resources][:cpu_units]
-              task_definition[:container_definitions][0][:memory] = service[:resources][:memory_units]
-              task_definition[:container_definitions][0][:port_mappings] = (service[:ports] || []).map do |port|
-                {
-                  container_port: port,
-                  host_port: 0,
-                  protocol: "tcp"
-                }
               end
               task_definition_response = ecs.register_task_definition(task_definition)
             end

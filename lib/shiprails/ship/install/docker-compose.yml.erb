@@ -1,6 +1,10 @@
 version: '2'
 
 services:
+  gembox:
+    image: busybox
+    volumes:
+      - /gembox
   memcached:
     image: memcached
   postgres:
@@ -48,7 +52,7 @@ services:
     tmpfs: /app/tmp
     volumes:
       - ".:/app"
-      - gems-data:/bundle
+      - gemsbox
   worker:
     <<: *app_base
     command: bundle exec sidekiq -C config/sidekiq.yml
@@ -73,8 +77,6 @@ services:
     ports: []
 
 volumes:
-  gems-data:
-    driver: local
   postgres-data:
     driver: local
   redis-data:

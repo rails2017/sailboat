@@ -22,7 +22,6 @@ module Shiprails
 
       def build_docker_images
         say "Building images..."
-        commands = []
         configuration[:services].each do |service_name, service|
           image_name = "#{compose_project_name}_#{service[:image]}"
           service[:regions].each do |region, values|
@@ -34,19 +33,19 @@ module Shiprails
         say "Build complete", :green
       end
 
-      def bundle_install
-        say "Bundle installing..."
-        commands = []
-        configuration[:services].each do |service_name, service|
-          image_name = "#{compose_project_name}_#{service[:image]}"
-          service[:regions].each do |region, values|
-            commands << "docker run #{image_name} bundle install"
-          end
-        end
-        commands.uniq!
-        commands.each { |c| run c } # TODO: check that this succeeded
-        say "Bundle install complete", :green
-      end
+      # def bundle_install
+      #   say "Bundle installing..."
+      #   commands = []
+      #   configuration[:services].each do |service_name, service|
+      #     image_name = "#{compose_project_name}_#{service[:image]}"
+      #     service[:regions].each do |region, values|
+      #       commands << "docker run #{image_name} bundle install"
+      #     end
+      #   end
+      #   commands.uniq!
+      #   commands.each { |c| run c } # TODO: check that this succeeded
+      #   say "Bundle install complete", :green
+      # end
 
       def tag_docker_images
         say "Tagging images..."
@@ -55,6 +54,7 @@ module Shiprails
           image_name = "#{compose_project_name}_#{service[:image]}"
           service[:regions].each do |region, values|
             repository_url = values[:repository_url]
+            commands << "docker tag #{compose_project_name}_gembox #{repository_url}:#{git_sha}-gembox"
             commands << "docker tag #{image_name} #{repository_url}:#{git_sha}"
           end
         end
@@ -73,6 +73,7 @@ module Shiprails
         end
         repository_urls_to_regions.each do |repository_url, region|
           run "`aws ecr get-login --region #{region}`"
+          run "docker push #{repository_url}:#{git_sha}-gembox" # TODO: check that this succeeded
           run "docker push #{repository_url}:#{git_sha}" # TODO: check that this succeeded
         end
         say "Push complete.", :green
@@ -100,16 +101,21 @@ module Shiprails
                 say "Run `ship setup`", :red
                 exit
               end
-              task_definition[:container_definitions][0][:cpu] = service[:resources][:cpu_units]
-              task_definition[:container_definitions][0][:image] = image_name
-              task_definition[:container_definitions][0][:memory] = service[:resources][:memory_units]
-              config_s3_version = task_definition[:container_definitions][0][:environment].find{|e| e[:name] == "S3_CONFIG_VERSION" }[:value]
-              task_definition[:container_definitions][0][:environment] = [
-                { name: "GIT_SHA", value: git_sha },
-                { name: "RACK_ENV", value: environment_name },
-                { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
-                { name: "S3_CONFIG_VERSION", value: config_s3_version }
-              ]
+              if container = task_definition[:container_definitions].find{ |container| container[:name] == service_name }
+                container[:cpu] = service[:resources][:cpu_units]
+                container[:image] = image_name
+                container[:memory] = service[:resources][:memory_units]
+                config_s3_version = container[:environment].find{|e| e[:name] == "S3_CONFIG_VERSION" }[:value]
+                container[:environment] = [
+                  { name: "GIT_SHA", value: git_sha },
+                  { name: "RACK_ENV", value: environment_name },
+                  { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
+                  { name: "S3_CONFIG_VERSION", value: config_s3_version }
+                ]
+              end
+              if container = task_definition[:container_definitions].find{ |container| container[:name] == 'gembox' }
+                app_container[:image] = "#{image_name}-gembox"
+              end
               task_definition_response = ecs.register_task_definition(task_definition)
               say "Updated #{task_name}.", :green
             end
