@@ -31,7 +31,7 @@ module Shiprails
             region[:environments].each do |environment_name|
               result = `S3_CONFIG_BUCKET=#{s3_config_bucket} bundle exec config list #{environment_name}`
               s3_config_revision = result.match(/#{environment_name} \(v([0-9]+)\)/)[1] rescue 0
-              commands << "docker build -t #{image_name} -f --build-arg AWS_ACCESS_KEY_ID='#{aws_access_key_id}' --build-arg AWS_SECRET_ACCESS_KEY='#{aws_access_key_secret}' --build-arg AWS_REGION='#{aws_region}' --build-arg S3_CONFIG_BUCKET='#{s3_config_bucket}' --build-arg S3_CONFIG_REVISION='#{s3_config_revision}' Dockerfile.production ."
+              commands << "docker build -t #{image_name} --build-arg AWS_ACCESS_KEY_ID='#{aws_access_key_id}' --build-arg AWS_SECRET_ACCESS_KEY='#{aws_access_key_secret}' --build-arg AWS_REGION='#{aws_region}' --build-arg S3_CONFIG_BUCKET='#{s3_config_bucket}' --build-arg S3_CONFIG_REVISION='#{s3_config_revision}' -f Dockerfile.production ."
             end
           end
         end
