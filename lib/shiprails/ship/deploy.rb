@@ -26,7 +26,7 @@ module Shiprails
         configuration[:services].each do |service_name, service|
           image_name = "#{compose_project_name}_#{service[:image]}"
           service[:regions].each do |region, values|
-            commands << "docker build -t #{image_name} Dockerfile.production"
+            commands << "docker build -t #{image_name} -f Dockerfile.production ."
           end
         end
         commands.uniq!
