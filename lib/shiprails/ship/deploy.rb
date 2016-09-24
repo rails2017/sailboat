@@ -22,11 +22,18 @@ module Shiprails
 
       def build_docker_images
         say "Building images..."
+        s3_config_bucket = configuration[:config_s3_bucket].to_s
         commands = []
         configuration[:services].each do |service_name, service|
           image_name = "#{compose_project_name}_#{service[:image]}"
           service[:regions].each do |region, values|
-            commands << "docker build -t #{image_name} -f Dockerfile.production ."
+            aws_region = region.to_s
+            region[:environments].each do |environment_name|
+              result = `S3_CONFIG_BUCKET=#{s3_config_bucket} bundle exec config list #{environment_name}`
+              s3_config_revision = result.match(/#{environment_name} \(v([0-9]+)\)/)[1] rescue 0
+              puts "s3_config_revision: #{s3_config_revision}"
+              commands << "docker build -t #{image_name} -f --build-arg AWS_ACCESS_KEY_ID=#{aws_access_key_id} --build-arg AWS_SECRET_ACCESS_KEY=#{aws_access_key_secret} --build-arg AWS_REGION=#{aws_region} --build-arg S3_CONFIG_BUCKET=#{s3_config_bucket} --build-arg S3_CONFIG_REVISION=#{s3_config_revision} Dockerfile.production ."
+            end
           end
         end
         commands.uniq!
