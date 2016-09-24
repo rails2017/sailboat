@@ -24,7 +24,11 @@ module Shiprails
     desc "bundle", "Run bundler commands"
     def bundle(*command)
       command_string = command.join(' ')
-      run "docker-compose run --rm app bundle #{command_string}"
+      if command_string.start_with?("exec")
+        run "docker-compose run --rm app bundle #{command_string}"
+      else
+        run "docker-compose run app bundle #{command_string}"
+      end
     end
 
     desc "rails", "Run rails commands"
