@@ -31,8 +31,7 @@ module Shiprails
             region[:environments].each do |environment_name|
               result = `S3_CONFIG_BUCKET=#{s3_config_bucket} bundle exec config list #{environment_name}`
               s3_config_revision = result.match(/#{environment_name} \(v([0-9]+)\)/)[1] rescue 0
-              puts "s3_config_revision: #{s3_config_revision}"
-              commands << "docker build -t #{image_name} -f --build-arg AWS_ACCESS_KEY_ID=#{aws_access_key_id} --build-arg AWS_SECRET_ACCESS_KEY=#{aws_access_key_secret} --build-arg AWS_REGION=#{aws_region} --build-arg S3_CONFIG_BUCKET=#{s3_config_bucket} --build-arg S3_CONFIG_REVISION=#{s3_config_revision} Dockerfile.production ."
+              commands << "docker build -t #{image_name} -f --build-arg AWS_ACCESS_KEY_ID='#{aws_access_key_id}' --build-arg AWS_SECRET_ACCESS_KEY='#{aws_access_key_secret}' --build-arg AWS_REGION='#{aws_region}' --build-arg S3_CONFIG_BUCKET='#{s3_config_bucket}' --build-arg S3_CONFIG_REVISION='#{s3_config_revision}' Dockerfile.production ."
             end
           end
         end
@@ -156,11 +155,11 @@ module Shiprails
       private
 
       def aws_access_key_id
-        @aws_access_key_id ||= ask "AWS Access Key ID", default: ENV.fetch("AWS_ACCESS_KEY_ID")
+        @aws_access_key_id ||= ENV.fetch("AWS_ACCESS_KEY_ID") { ask "AWS Access Key ID" }
       end
 
       def aws_access_key_secret
-        @aws_access_key_secret ||= ask "AWS Access Key Secret", default: ENV.fetch("AWS_SECRET_ACCESS_KEY")
+        @aws_access_key_secret ||= ENV.fetch("AWS_SECRET_ACCESS_KEY") { ask "AWS Access Key Secret" }
       end
 
       def configuration
