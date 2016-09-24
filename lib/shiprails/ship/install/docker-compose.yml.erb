@@ -48,6 +48,7 @@ services:
     tmpfs: /app/tmp
     volumes:
       - ".:/app"
+      - gems-data:/bundle
   worker:
     <<: *app_base
     command: bundle exec sidekiq -C config/sidekiq.yml
@@ -72,6 +73,8 @@ services:
     ports: []
 
 volumes:
+  gems-data:
+    driver: local
   postgres-data:
     driver: local
   redis-data:

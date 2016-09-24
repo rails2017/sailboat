@@ -34,9 +34,11 @@ module Shiprails
                 task_definition = {
                   container_definitions: [
                     {
+                      command: service[:command],
                       cpu: service[:resources][:cpu_units],
                       essential: true,
                       environment: [
+                        { name: "AWS_REGION", value: region_name.to_s },
                         { name: "RACK_ENV", value: environment_name },
                         { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
                         { name: "S3_CONFIG_REVISION", value: "0" }

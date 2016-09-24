@@ -108,6 +108,7 @@ module Shiprails
 
       def create_dockerfile
         template("Dockerfile.erb", "#{options[:path]}/Dockerfile")
+        template("Dockerfile.production.erb", "#{options[:path]}/Dockerfile.production")
       end
 
       def create_dot_env
