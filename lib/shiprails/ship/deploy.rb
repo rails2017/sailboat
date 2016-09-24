@@ -26,8 +26,8 @@ module Shiprails
         commands = []
         configuration[:services].each do |service_name, service|
           image_name = "#{compose_project_name}_#{service[:image]}"
-          service[:regions].each do |region, values|
-            aws_region = region.to_s
+          service[:regions].each do |region_name, region|
+            aws_region = region_name.to_s
             region[:environments].each do |environment_name|
               result = `S3_CONFIG_BUCKET=#{s3_config_bucket} bundle exec config list #{environment_name}`
               s3_config_revision = result.match(/#{environment_name} \(v([0-9]+)\)/)[1] rescue 0
@@ -46,8 +46,8 @@ module Shiprails
         commands = []
         configuration[:services].each do |service_name, service|
           image_name = "#{compose_project_name}_#{service[:image]}"
-          service[:regions].each do |region, values|
-            repository_url = values[:repository_url]
+          service[:regions].each do |region_name, region|
+            repository_url = region[:repository_url]
             commands << "docker tag #{image_name} #{repository_url}:#{git_sha}"
           end
         end
