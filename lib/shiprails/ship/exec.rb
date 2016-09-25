@@ -33,7 +33,7 @@ module Shiprails
           overrides: {
             container_overrides: [{
               name: options['service'],
-              command: command_string
+              command: command_string.split(' ')
             }]
           }
         })
