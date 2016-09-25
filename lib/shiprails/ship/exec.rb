@@ -27,6 +27,7 @@ module Shiprails
         ecs = Aws::ECS::Client.new(region: options['region'])
         task_definition_response = ecs.describe_task_definition({task_definition: task_name})
         task_definition_arn = task_definition_response.task_definition.task_definition_arn
+        say "Running `#{command_string}` in #{options['environment']} #{options['service']} (#{options['region']})..."
         task_response = ecs.run_task({
           cluster: cluster_name,
           task_definition: task_definition_arn,
@@ -37,7 +38,18 @@ module Shiprails
             }]
           }
         })
-        say "Ran `#{command_string}` in #{options['environment']} #{options['service']} (#{options['region']}).", :green
+        task_arn = task_response.tasks.first.task_arn
+        resp = ecs.describe_tasks({ cluster: cluster_name, tasks: [task_arn] })
+        while resp.tasks.first.containers.first.exit_code.nil?
+          sleep 1
+          resp = ecs.describe_tasks({ cluster: cluster_name, tasks: [task_arn] })
+          say "."
+        end
+        if resp.tasks.first.containers.first.exit_code > 0
+          say "Task exited other than 0: #{resp.tasks.first.containers.first.exit_code} (#{task_arn})", :red
+        else
+          say "Ran `#{command_string}` in #{options['environment']} #{options['service']} (#{options['region']}).", :green
+        end
       end
 
       private
