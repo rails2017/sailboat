@@ -70,6 +70,8 @@ module Shiprails
         # with the instance ARN let's grab the intance id
         ec2_instance_id = ecs.describe_container_instances({cluster: cluster, container_instances: [container_instance_arn]}).container_instances[0].ec2_instance_id
 
+        say "Setting up EC2 instance for SSH..."
+
         # TODO: find security group for ship exec or create one
         # TODO: add our IP to security group with SSH port
         # TODO: add security group to instance ec2_instance_id
@@ -88,12 +90,15 @@ module Shiprails
 
         command_string = command_array.join ' '
         say "Connecting to #{ec2_instance_id}..."
-        say "Executing: $ #{command_string}"
-        exec "ssh -t -i #{ssh_private_key_path} #{ssh_user}@#{ssh_host} '#{command_string}'"
+        say "Executing: `#{command_string}`..."
+        system "ssh -t -i #{ssh_private_key_path} #{ssh_user}@#{ssh_host} '#{command_string}'"
+
+        say "Tearing down EC2 instance SSH..."
 
         # TODO: remove our IP from security group with SSH port
         # TODO: remove security group from instance ec2_instance_id
         # TODO: remove public ip address from instance
+        say "Done", :green
       end
 
     end
