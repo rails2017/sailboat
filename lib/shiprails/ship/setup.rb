@@ -13,6 +13,25 @@ module Shiprails
         default: ".",
         desc: "Specify a configuration path"
 
+      def create_cloudwatch_logs_group
+        say "Creating CloudWatch Log groups..."
+        created_groups = []
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            client = Aws::CloudWatchLogs::Client.new(region: region_name.to_s)
+            region[:environments].each do |environment_name|
+              cluster_name = "#{project_name}_#{environment_name}"
+              unless created_groups.include? cluster_name
+                client.create_log_group({ log_group_name: cluster_name })
+                say "Created #{cluster_name} log group."
+                created_groups << cluster_name
+              end
+            end
+          end
+        end
+        say "Created CloudWatch Log groups.", :green
+      end
+
       def create_ecs_tasks
         say "Creating ECS tasks..."
         configuration[:services].each do |service_name, service|
@@ -44,6 +63,14 @@ module Shiprails
                         { name: "S3_CONFIG_REVISION", value: "0" }
                       ],
                       image: "#{region[:repository_url]}:latest",
+                      log_configuration: {
+                        log_driver: "awslogs",
+                        options: {
+                          "awslog-group" => cluster_name,
+                          "awslogs-region" => region_name.to_s,
+                          "awslogs-stream-prefix" => ""
+                        }
+                      },
                       memory: service[:resources][:memory_units],
                       name: service_name,
                       port_mappings: (service[:ports] || []).map { |port|
