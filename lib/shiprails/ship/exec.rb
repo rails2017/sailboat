@@ -57,43 +57,59 @@ module Shiprails
 
         # first we get the ARN of the task managed by the service
         tasks_list = ecs.list_tasks({cluster: cluster, desired_status: 'RUNNING', service_name: service})
-        task_arn = tasks_list.task_arns[0]
+        task_arn = tasks_list.task_arns.first
 
         # using the ARN of the task, we can get the ARN of the container instance where its being deployed
         task_descriptions = ecs.describe_tasks({cluster: cluster, tasks: [task_arn]})
-        task_definition_arn = task_descriptions.tasks[0].task_definition_arn
+        task_definition_arn = task_descriptions.tasks.first.task_definition_arn
         task_definition_name = task_definition_arn.split('/').last
-        container_instance_arn = task_descriptions.tasks[0].container_instance_arn
+        container_instance_arn = task_descriptions.tasks.first.container_instance_arn
 
         task_definition_description = ecs.describe_task_definition({task_definition: task_definition_name})
 
         # with the instance ARN let's grab the intance id
-        ec2_instance_id = ecs.describe_container_instances({cluster: cluster, container_instances: [container_instance_arn]}).container_instances[0].ec2_instance_id
+        ec2_instance_id = ecs.describe_container_instances({cluster: cluster, container_instances: [container_instance_arn]}).container_instances.first.ec2_instance_id
+        ec2_instance = ec2.describe_instances({instance_ids: [ec2_instance_id]}).reservations.first.instances.first
 
-        # TODO: find security group for ship exec or create one
-        # TODO: add our IP to security group with SSH port
+        elastic_ip = ec2.allocate_address({ domain: "vpc" })
+        associate_address_response = ec2.associate_address({
+          allocation_id: elastic_ip.allocation_id,
+          instance_id: ec2_instance_id
+        })
+
+        security_group_response = ec2.create_security_group({
+          group_name: "shiprails-exec-#{cluster}-#{Time.now.to_i}",
+          description: "SSH access to run interactive command (created by `whoami`; shiprails)",
+          vpc_id: ec2_instance.vpc_id
+        })
+
+        my_ip_address = open('http://whatismyip.akamai.com').read
+        ec2.authorize_security_group_ingress({
+          group_id: security_group_response.group_id,
+          ip_protocol: "tcp",
+          from_port: -1,
+          to_port: "22",
+          cidr_ip: "#{my_ip_address}/32"
+        })
         # TODO: add security group to instance ec2_instance_id
-        # TODO: add public ip address to instance
-
-        # we need to describe the instance with this id using the ec2 api
-        instance = ec2.describe_instances({instance_ids: [ec2_instance_id]}).reservations[0].instances[0]
-        ssh_host = instance.public_ip_address
 
         command_array = ["docker run -it --rm"]
-        task_definition_description.task_definition.container_definitions[0].environment.each do |env|
+        task_definition_description.task_definition.container_definitions.first.environment.each do |env|
           command_array << "-e #{env.name}='#{env.value}'"
         end
-        command_array << task_definition_description.task_definition.container_definitions[0].image
+        command_array << task_definition_description.task_definition.container_definitions.first.image
         command_array << command
 
         command_string = command_array.join ' '
         say "Connecting to #{ec2_instance_id}..."
         say "Executing: $ #{command_string}"
-        exec "ssh -t -i #{ssh_private_key_path} #{ssh_user}@#{ssh_host} '#{command_string}'"
-
-        # TODO: remove our IP from security group with SSH port
+        exec "ssh -o ConnectTimeout=5 -t -i #{ssh_private_key_path} #{ssh_user}@#{elastic_ip.public_ip} '#{command_string}'"
+        say "Cleaning up..."
         # TODO: remove security group from instance ec2_instance_id
-        # TODO: remove public ip address from instance
+        ec2.delete_security_group({ group_id: security_group_response.group_id })
+        ec2.disassociate_address({ association_id: associate_address_response.association_id })
+        ec2.release_address({ allocation_id: elastic_ip.allocation_id })
+        say "Done.", :green
       end
 
     end
