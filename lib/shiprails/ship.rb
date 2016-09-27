@@ -53,14 +53,14 @@ module Shiprails
       say "TODO: fetch logs", :blue
     end
 
-    desc "exec", "Execute one off commands"
+    desc "task", "Run one off commands"
     method_option "path",
       aliases: ["-p"],
       default: ".shiprails.yml",
       desc: "Specify a configuration file path"
-    def exec(*command_args)
-      require "shiprails/ship/exec"
-      Exec.start command_args
+    def task(*command_args)
+      require "shiprails/ship/task"
+      Task.start command_args
     end
 
     desc "scale ENVIRONMENT SERVICE PROCESS_COUNT", "Change service instances"
