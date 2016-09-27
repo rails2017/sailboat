@@ -67,22 +67,25 @@ module Shiprails
 
         task_definition_description = ecs.describe_task_definition({task_definition: task_definition_name})
 
+        say "Setting up EC2 instance for SSH..."
         # with the instance ARN let's grab the intance id
         ec2_instance_id = ecs.describe_container_instances({cluster: cluster, container_instances: [container_instance_arn]}).container_instances.first.ec2_instance_id
         ec2_instance = ec2.describe_instances({instance_ids: [ec2_instance_id]}).reservations.first.instances.first
+
+        puts ec2_instance.inspect
+
+        exit
 
         elastic_ip = ec2.allocate_address({ domain: "vpc" })
         associate_address_response = ec2.associate_address({
           allocation_id: elastic_ip.allocation_id,
           instance_id: ec2_instance_id
         })
-
         security_group_response = ec2.create_security_group({
           group_name: "shiprails-exec-#{cluster}-#{Time.now.to_i}",
           description: "SSH access to run interactive command (created by `whoami`; shiprails)",
           vpc_id: ec2_instance.vpc_id
         })
-
         my_ip_address = open('http://whatismyip.akamai.com').read
         ec2.authorize_security_group_ingress({
           group_id: security_group_response.group_id,
@@ -91,6 +94,7 @@ module Shiprails
           to_port: "22",
           cidr_ip: "#{my_ip_address}/32"
         })
+
         # TODO: add security group to instance ec2_instance_id
 
         command_array = ["docker run -it --rm"]
@@ -99,12 +103,13 @@ module Shiprails
         end
         command_array << task_definition_description.task_definition.container_definitions.first.image
         command_array << command
-
         command_string = command_array.join ' '
+
         say "Connecting to #{ec2_instance_id}..."
         say "Executing: $ #{command_string}"
         exec "ssh -o ConnectTimeout=5 -t -i #{ssh_private_key_path} #{ssh_user}@#{elastic_ip.public_ip} '#{command_string}'"
-        say "Cleaning up..."
+
+        say "Cleaning up SSH access..."
         # TODO: remove security group from instance ec2_instance_id
         ec2.delete_security_group({ group_id: security_group_response.group_id })
         ec2.disassociate_address({ association_id: associate_address_response.association_id })
