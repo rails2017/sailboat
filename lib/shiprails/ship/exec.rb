@@ -73,10 +73,11 @@ module Shiprails
         # TODO: find security group for ship exec or create one
         # TODO: add our IP to security group with SSH port
         # TODO: add security group to instance ec2_instance_id
+        # TODO: add public ip address to instance
 
         # we need to describe the instance with this id using the ec2 api
         instance = ec2.describe_instances({instance_ids: [ec2_instance_id]}).reservations[0].instances[0]
-        ssh_host = instance.public_dns_name
+        ssh_host = instance.public_ip_address
 
         command_array = ["docker run -it --rm"]
         task_definition_description.task_definition.container_definitions[0].environment.each do |env|
@@ -92,6 +93,7 @@ module Shiprails
 
         # TODO: remove our IP from security group with SSH port
         # TODO: remove security group from instance ec2_instance_id
+        # TODO: remove public ip address from instance
       end
 
     end
