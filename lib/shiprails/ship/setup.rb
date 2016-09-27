@@ -210,6 +210,14 @@ module Shiprails
         say "TODO: create cloudwatch alarms for elb latency / service units", :blue
       end
 
+      def create_iam_groups
+        say "TODO: create cloudwatch logs read group", :blue
+        say "TODO: create scale group", :blue
+        say "TODO: create deploy IAM group", :blue
+        say "TODO: create run task IAM group", :blue
+        say "TODO: create exec interactive IAM group", :blue
+      end
+
       private
 
       def aws_access_key_id
