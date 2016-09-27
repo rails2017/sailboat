@@ -63,6 +63,16 @@ module Shiprails
       Task.start command_args
     end
 
+    desc "exec", "Run interactive commands"
+    method_option "path",
+      aliases: ["-p"],
+      default: ".shiprails.yml",
+      desc: "Specify a configuration file path"
+    def exec(*command_args)
+      require "shiprails/ship/exec"
+      Exec.start command_args
+    end
+
     desc "scale ENVIRONMENT SERVICE PROCESS_COUNT", "Change service instances"
     method_option "path",
       aliases: ["-p"],

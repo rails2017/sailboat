@@ -19,37 +19,17 @@ module Shiprails
       class_option "service",
         default: "app",
         desc: "Specify the service name"
+      class_option "private-key",
+        default: "~/.ssh/aws.pem",
+        desc: "Specify the AWS SSH private key path"
 
       def run_command
-        command_string = args.join ' '
+        region = options['region']
+        service = options['service']
         cluster_name = "#{project_name}_#{options['environment']}"
-        task_name = "#{project_name}_#{options['service']}_#{options['environment']}"
-        ecs = Aws::ECS::Client.new(region: options['region'])
-        task_definition_response = ecs.describe_task_definition({task_definition: task_name})
-        task_definition_arn = task_definition_response.task_definition.task_definition_arn
-        say "Running `#{command_string}` in #{options['environment']} #{options['service']} (#{options['region']})..."
-        task_response = ecs.run_task({
-          cluster: cluster_name,
-          task_definition: task_definition_arn,
-          overrides: {
-            container_overrides: [{
-              name: options['service'],
-              command: command_string.split(' ')
-            }]
-          }
-        })
-        task_arn = task_response.tasks.first.task_arn
-        resp = ecs.describe_tasks({ cluster: cluster_name, tasks: [task_arn] })
-        while resp.tasks.first.containers.first.exit_code.nil?
-          sleep 1
-          resp = ecs.describe_tasks({ cluster: cluster_name, tasks: [task_arn] })
-          say "."
-        end
-        if resp.tasks.first.containers.first.exit_code > 0
-          say "Task exited other than 0: #{resp.tasks.first.containers.first.exit_code} (#{task_arn})", :red
-        else
-          say "Ran `#{command_string}` in #{options['environment']} #{options['service']} (#{options['region']}).", :green
-        end
+        command_string = args.join ' '
+        ssh_private_key_path = options['private-key']
+        ecs_exec(region, cluster_name, service, command_string, ssh_private_key_path)
       end
 
       private
@@ -68,6 +48,50 @@ module Shiprails
 
       def project_name
         configuration[:project_name]
+      end
+
+      def ecs_exec(region, cluster, service, command, ssh_private_key_path, ssh_user: 'ec2-user')
+        # we'll need to use both the ecs and ec2 apis
+        ecs = Aws::ECS::Client.new(region: region)
+        ec2 = Aws::EC2::Client.new(region: region)
+
+        # first we get the ARN of the task managed by the service
+        tasks_list = ecs.list_tasks({cluster: cluster, desired_status: 'RUNNING', service_name: service})
+        task_arn = tasks_list.task_arns[0]
+
+        # using the ARN of the task, we can get the ARN of the container instance where its being deployed
+        task_descriptions = ecs.describe_tasks({cluster: cluster, tasks: [task_arn]})
+        task_definition_arn = task_descriptions.tasks[0].task_definition_arn
+        task_definition_name = task_definition_arn.split('/').last
+        container_instance_arn = task_descriptions.tasks[0].container_instance_arn
+
+        task_definition_description = ecs.describe_task_definition({task_definition: task_definition_name})
+
+        # with the instance ARN let's grab the intance id
+        ec2_instance_id = ecs.describe_container_instances({cluster: cluster, container_instances: [container_instance_arn]}).container_instances[0].ec2_instance_id
+
+        # TODO: find security group for ship exec or create one
+        # TODO: add our IP to security group with SSH port
+        # TODO: add security group to instance ec2_instance_id
+
+        # we need to describe the instance with this id using the ec2 api
+        instance = ec2.describe_instances({instance_ids: [ec2_instance_id]}).reservations[0].instances[0]
+        ssh_host = instance.public_dns_name
+
+        command_array = ["docker run -it --rm"]
+        task_definition_description.task_definition.container_definitions[0].environment.each do |env|
+          command_array << "-e #{env.name}='#{env.value}'"
+        end
+        command_array << task_definition_description.task_definition.container_definitions[0].image
+        command_array << command
+
+        command_string = command_array.join ' '
+        say "Connecting to #{ec2_instance_id}..."
+        say "Executing: $ #{command_string}"
+        exec "ssh -t -i #{ssh_private_key_path} #{ssh_user}@#{ssh_host} '#{command_string}'"
+
+        # TODO: remove our IP from security group with SSH port
+        # TODO: remove security group from instance ec2_instance_id
       end
 
     end
