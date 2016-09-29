@@ -20,7 +20,7 @@ module Shiprails
         default: "app",
         desc: "Specify the service name"
       class_option "private-key",
-        default: "~/.ssh/aws.pem",
+        default: "shiprails.pem",
         desc: "Specify the AWS SSH private key path"
 
       def run_command

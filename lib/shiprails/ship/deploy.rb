@@ -31,7 +31,7 @@ module Shiprails
             region[:environments].each do |environment_name|
               result = `S3_CONFIG_BUCKET=#{s3_config_bucket} bundle exec config list #{environment_name}`
               s3_config_revision = result.match(/#{environment_name} \(v([0-9]+)\)/)[1] rescue 0
-              commands << "docker build -t #{image_name} --build-arg AWS_ACCESS_KEY_ID='#{aws_access_key_id}' --build-arg AWS_SECRET_ACCESS_KEY='#{aws_access_key_secret}' --build-arg AWS_REGION='#{aws_region}' --build-arg S3_CONFIG_BUCKET='#{s3_config_bucket}' --build-arg S3_CONFIG_REVISION='#{s3_config_revision}' -f Dockerfile.production ."
+              commands << "docker build -t #{image_name}_#{environment_name} --build-arg AWS_ACCESS_KEY_ID='#{aws_access_key_id}' --build-arg AWS_SECRET_ACCESS_KEY='#{aws_access_key_secret}' --build-arg AWS_REGION='#{aws_region}' --build-arg S3_CONFIG_BUCKET='#{s3_config_bucket}' --build-arg S3_CONFIG_REVISION='#{s3_config_revision}' -f Dockerfile.production ."
             end
           end
         end
@@ -47,7 +47,9 @@ module Shiprails
           image_name = "#{compose_project_name}_#{service[:image]}"
           service[:regions].each do |region_name, region|
             repository_url = region[:repository_url]
-            commands << "docker tag #{image_name} #{repository_url}:#{git_sha}"
+            region[:environments].each do |environment_name|
+              commands << "docker tag #{image_name}_#{environment_name} #{repository_url}:#{git_sha}"
+            end
           end
         end
         commands.uniq!

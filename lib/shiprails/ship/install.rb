@@ -47,6 +47,10 @@ module Shiprails
         @bucket_name = bucket_name
       end
 
+      def ec2_ssh_private_key_path
+        @ec2_ssh_private_key_path ||= ask "Where is your AWS EC2 SSH private key?", default: 'shiprails.pem'
+      end
+
       def environments
         environments = Dir.entries("#{Dir.getwd}/config/environments").grep(/\.rb$/).map { |fname| fname.chomp!(".rb") }.select{ |e| !['development', 'test'].include? e } rescue ['production']
         environments ||= ['production']
