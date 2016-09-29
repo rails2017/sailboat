@@ -126,6 +126,7 @@ module Shiprails
 
 # Ignore Docker ENV
 /.env
+/shiprails.pem
 EOF
         end
       end
