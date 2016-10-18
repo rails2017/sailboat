@@ -74,13 +74,6 @@ module Shiprails
         # get its current security groups to restory later
         security_group_ids = ec2_instance.security_groups.map(&:group_id)
 
-        # create new public ip
-        elastic_ip = ec2.allocate_address({ domain: "vpc" })
-        # link ip to ec2 instance
-        associate_address_response = ec2.associate_address({
-          allocation_id: elastic_ip.allocation_id,
-          instance_id: ec2_instance_id
-        })
         # create security group for us
         security_group_response = ec2.create_security_group({
           group_name: "shiprails-exec-#{cluster}-#{Time.now.to_i}",
@@ -114,7 +107,7 @@ module Shiprails
 
         say "Waiting for AWS to setup networking..."
         sleep 5 # AWS just needs a little bit to setup networking
-        say "Connecting #{ssh_user}@#{elastic_ip.public_ip}..."
+        say "Connecting #{ssh_user}@#{ec2_instance.public_ip_address}..."
         say "Executing: $ #{command_string}"
         system "ssh -o ConnectTimeout=15 -o 'StrictHostKeyChecking no' -t -i #{ssh_private_key_path} #{ssh_user}@#{elastic_ip.public_ip} '#{command_string}'"
       rescue => e
@@ -128,10 +121,6 @@ module Shiprails
         }) rescue nil
         # remove our access security group
         ec2.delete_security_group({ group_id: security_group_response.group_id }) rescue nil
-        # unlink ec2 instance from public ip
-        ec2.disassociate_address({ association_id: associate_address_response.association_id }) rescue nil
-        # release public ip address
-        ec2.release_address({ allocation_id: elastic_ip.allocation_id }) rescue nil
         say "Done.", :green
       end
 
