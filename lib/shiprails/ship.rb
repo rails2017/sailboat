@@ -11,7 +11,7 @@ module Shiprails
     end
 
     desc "setup", "Setup a Shiprails environment"
-    def setup
+    def setup(*args)
       require "shiprails/ship/setup"
       Setup.start
     end

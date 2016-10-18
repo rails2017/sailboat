@@ -1,6 +1,7 @@
 require "active_support/all"
 require "aws-sdk"
 require "git"
+require "netaddr"
 require "thor/group"
 
 module Shiprails
@@ -12,6 +13,202 @@ module Shiprails
         aliases: ["-p"],
         default: ".",
         desc: "Specify a configuration path"
+      class_option "ami-name",
+        aliases: ["-ami"],
+        default: "amzn-ami-2016.03.i-amazon-ecs-optimized",
+        desc: "Specify an AWS EC2 AMI name"
+
+      def create_vpc
+        say "Creating VPCs..."
+        cluster_names = []
+        configuration[:services].each do |service_name, service|
+          image_name = "#{project_name}_#{service_name}"
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              cluster_name = "#{project_name}_#{environment_name}"
+              next if cluster_names.include? cluster_name
+              cluster_names << cluster_name
+              client = Aws::EC2::Client.new(region: region_name.to_s)
+              vpcs = client.describe_vpcs({
+                filters: [
+                  {
+                    name: "tag-key",
+                    values: ["Name"]
+                  },
+                  {
+                    name: "tag-value",
+                    values: [cluster_name]
+                  }
+                ]
+              }).vpcs
+              if vpcs.empty?
+                cidr = NetAddr::CIDR.create("10.0.0.0/16")
+                vpc = client.create_vpc({
+                  cidr_block: cidr.to_s
+                }).vpc
+                vpc = Aws::EC2::Vpc.new(vpc.vpc_id)
+                vpc.create_tags({
+                  tags: [
+                    {
+                      key: "Name",
+                      value: cluster_name
+                    }
+                  ]
+                })
+                availability_zones = client.describe_availability_zones.availability_zones
+                count = availability_zones.count.to_f
+                count = (count / 4.0).ceil.to_i * 4 # need multiples of 4 for CIDR math, I guess?
+                subnets = cidr.subnet IPCount: (cidr.size / count)
+                availability_zones.each_with_index do |availability_zone, i|
+                  next unless availability_zone.state == "available"
+                  subnet = vpc.create_subnet({
+                    cidr_block: subnets[i],
+                    availability_zone: availability_zone.zone_name
+                  })
+                  subnet = Aws::EC2::Subnet.new(subnet.id)
+                  subnet.create_tags({
+                    tags: [
+                      {
+                        key: "Name",
+                        value: "#{cluster_name}-#{availability_zone.zone_name}"
+                      }
+                    ]
+                  })
+                end
+                internet_gateway = client.create_internet_gateway().internet_gateway
+                vpc.attach_internet_gateway({
+                  internet_gateway_id: internet_gateway.internet_gateway_id
+                })
+                internet_gateway = Aws::EC2::InternetGateway.new internet_gateway.internet_gateway_id
+                internet_gateway.create_tags({
+                  tags: [
+                    {
+                      key: "Name",
+                      value: cluster_name
+                    }
+                  ]
+                })
+                say "Created VPC (#{cluster_name})."
+              end
+            end
+          end
+        end
+        say "Created VPCs.", :green
+      end
+
+      def create_security_groups
+        say "Creating Security Groups..."
+        cluster_names = []
+        configuration[:services].each do |service_name, service|
+          image_name = "#{project_name}_#{service_name}"
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              cluster_name = "#{project_name}_#{environment_name}"
+              next if cluster_names.include? cluster_name
+              cluster_names << cluster_name
+              client = Aws::EC2::Client.new(region: region_name.to_s)
+              vpcs = client.describe_vpcs({
+                filters: [
+                  {
+                    name: "tag-key",
+                    values: ["Name"]
+                  },
+                  {
+                    name: "tag-value",
+                    values: [cluster_name]
+                  }
+                ]
+              }).vpcs
+              vpc = vpcs.first
+              begin
+                app_security_group = client.create_security_group({
+                  group_name: "#{cluster_name}_app",
+                  description: "The app group for #{cluster_name} (Shiprails managed)",
+                  vpc_id: vpc.vpc_id
+                })
+                puts app_security_group.inspect
+              rescue Aws::EC2::Errors::InvalidGroupDuplicate => err
+                app_security_group = client.describe_security_groups({
+                  filters: [
+                    {
+                      name: "vpc-id",
+                      values: [vpc.vpc_id]
+                    }
+                  ],
+                  group_names: ["#{cluster_name}_app"]
+                }).security_groups.first
+              end
+              app_security_group = Aws::EC2::SecurityGroup.new(app_security_group.group_id)
+              begin
+                services_security_group = client.create_security_group({
+                  group_name: "#{cluster_name}_services",
+                  description: "The services (cache, database, search, etc.) group for #{cluster_name} (Shiprails managed)",
+                  vpc_id: vpc.vpc_id
+                })
+              rescue Aws::EC2::Errors::InvalidGroupDuplicate => err
+                services_security_group = client.describe_security_groups({
+                  filters: [
+                    {
+                      name: "vpc-id",
+                      values: [vpc.vpc_id]
+                    }
+                  ],
+                  group_names: ["#{cluster_name}_services"]
+                }).security_groups.first
+              end
+              services_security_group = Aws::EC2::SecurityGroup.new(services_security_group.group_id)
+              begin
+                web_security_group = client.create_security_group({
+                  group_name: "#{cluster_name}_web",
+                  description: "The database group for #{cluster_name} (Shiprails managed)",
+                  vpc_id: vpc.vpc_id
+                })
+              rescue Aws::EC2::Errors::InvalidGroupDuplicate => err
+                web_security_group = client.describe_security_groups({
+                  filters: [
+                    {
+                      name: "vpc-id",
+                      values: [vpc.vpc_id]
+                    }
+                  ],
+                  group_names: ["#{cluster_name}_web"]
+                }).security_groups.first
+              end
+              web_security_group = Aws::EC2::SecurityGroup.new(web_security_group.group_id)
+              app_security_group.authorize_ingress({
+                ip_protocol: "all",
+                source_security_group_name: web_security_group.group_id,
+                source_security_group_owner_id: web_security_group.owner_id,
+              })
+              services_security_group.authorize_ingress({
+                ip_protocol: "all",
+                source_security_group_name: app_security_group.group_id,
+                source_security_group_owner_id: app_security_group.owner_id,
+              })
+              web_security_group.authorize_ingress({
+                from_port: 80,
+                ip_protocol: "tcp",
+                source_security_group_name: "amazon-elb-sg",
+                source_security_group_owner_id: "amazon-elb",
+                to_port: 80
+              })
+              web_security_group.authorize_ingress({
+                from_port: 443,
+                ip_protocol: "tcp",
+                source_security_group_name: "amazon-elb-sg",
+                source_security_group_owner_id: "amazon-elb",
+                to_port: 443
+              })
+              # TODO: outbound from web to app?
+              say "Created security group (#{cluster_name})."
+            end
+          end
+        end
+        say "Created Security Groups.", :green
+
+
+        exit
+      end
 
       def create_cloudwatch_logs_group
         say "Creating CloudWatch Log groups..."
@@ -22,7 +219,10 @@ module Shiprails
             region[:environments].each do |environment_name|
               cluster_name = "#{project_name}_#{environment_name}"
               unless created_groups.include? cluster_name
-                client.create_log_group({ log_group_name: cluster_name })
+                begin
+                  client.create_log_group({ log_group_name: cluster_name })
+                rescue Aws::CloudWatchLogs::Errors::ResourceAlreadyExistsException => err
+                end
                 say "Created #{cluster_name} log group."
                 created_groups << cluster_name
               end
@@ -53,7 +253,7 @@ module Shiprails
                 task_definition = {
                   container_definitions: [
                     {
-                      command: service[:command],
+                      command: service[:command].split(' '),
                       cpu: service[:resources][:cpu_units],
                       essential: true,
                       environment: [
@@ -115,7 +315,41 @@ module Shiprails
       end
 
       def create_ec2_launch_configurations
-        say "TODO: create cluster launch config", :blue
+        say "Creating Auto-Scaling Launch Configuration..."
+        cluster_names = []
+        configuration[:services].each do |service_name, service|
+          image_name = "#{project_name}_#{service_name}"
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              cluster_name = "#{project_name}_#{environment_name}"
+              next if cluster_names.include? cluster_name
+              cluster_names << cluster_name
+              client = Aws::AutoScaling::Client.new(region: region_name.to_s)
+              launch_configurations = client.describe_launch_configurations.launch_configurations.select{|config| config.launch_configuration_name.include? cluster_name }
+              ec2_client = Aws::EC2::Client.new(region: region_name.to_s)
+              image = ec2_client.describe_images({
+                filters: [
+                  {
+                    name: "name",
+                    values: [options['ami-name']]
+                  },
+                  {
+                    name: "virtualization-type",
+                    values: ["hvm"]
+                  }
+                ]
+              }).images.first
+              new_launch_configuration = {
+                launch_configuration_name: "#{cluster_name}-v#{launch_configurations.count}",
+                image_id: image.image_id
+              }
+              puts new_launch_configuration.inspect
+              # TODO: if new_launch_configuration != launch_configurations.last.to_h, then name and create_launch_configuration
+              # TODO: ask user for SSH key or create new key pair and store in shiprails.pem
+              exit
+            end
+          end
+        end
       end
 
       def create_ec2_autoscaling_groups
