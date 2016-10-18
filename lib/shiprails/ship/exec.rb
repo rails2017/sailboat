@@ -109,7 +109,7 @@ module Shiprails
         sleep 5 # AWS just needs a little bit to setup networking
         say "Connecting #{ssh_user}@#{ec2_instance.public_ip_address}..."
         say "Executing: $ #{command_string}"
-        system "ssh -o ConnectTimeout=15 -o 'StrictHostKeyChecking no' -t -i #{ssh_private_key_path} #{ssh_user}@#{elastic_ip.public_ip} '#{command_string}'"
+        system "ssh -o ConnectTimeout=15 -o 'StrictHostKeyChecking no' -t -i #{ssh_private_key_path} #{ssh_user}@#{ec2_instance.public_ip_address} '#{command_string}'"
       rescue => e
         say "Error: #{e.message}", :red
       ensure
