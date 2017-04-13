@@ -16,7 +16,7 @@ module Shiprails
       def check_git_status
         if git.status.added.any? or git.status.changed.any? or git.status.deleted.any?
           say "You have uncommitted changes. Commit and try again.", :red
-          exit
+          # exit # TESTING
         end
       end
 
@@ -29,6 +29,7 @@ module Shiprails
           service[:regions].each do |region_name, region|
             aws_region = region_name.to_s
             region[:environments].each do |environment_name|
+              next unless args.empty? or args.include?(environment_name)
               result = `S3_CONFIG_BUCKET=#{s3_config_bucket} bundle exec config list #{environment_name}`
               s3_config_revision = result.match(/#{environment_name} \(v([0-9]+)\)/)[1] rescue 0
               commands << "docker build -t #{image_name}_#{environment_name} --build-arg AWS_ACCESS_KEY_ID='#{aws_access_key_id}' --build-arg AWS_SECRET_ACCESS_KEY='#{aws_access_key_secret}' --build-arg AWS_REGION='#{aws_region}' --build-arg S3_CONFIG_BUCKET='#{s3_config_bucket}' --build-arg S3_CONFIG_REVISION='#{s3_config_revision}' -f Dockerfile.production ."
@@ -48,6 +49,7 @@ module Shiprails
           service[:regions].each do |region_name, region|
             repository_url = region[:repository_url]
             region[:environments].each do |environment_name|
+              next unless args.empty? or args.include?(environment_name)
               commands << "docker tag #{image_name}_#{environment_name} #{repository_url}:#{git_sha}"
             end
           end
@@ -79,6 +81,7 @@ module Shiprails
           service[:regions].each do |region_name, region|
             ecs = Aws::ECS::Client.new(region: region_name.to_s)
             region[:environments].each do |environment_name|
+              next unless args.empty? or args.include?(environment_name)
               cluster_name = "#{project_name}_#{environment_name}"
               task_name = "#{project_name}_#{service_name}_#{environment_name}"
               image_name = "#{region[:repository_url]}:#{git_sha}"
@@ -122,6 +125,7 @@ module Shiprails
           service[:regions].each do |region_name, region|
             ecs = Aws::ECS::Client.new(region: region_name.to_s)
             region[:environments].each do |environment_name|
+              next unless args.empty? or args.include?(environment_name)
               cluster_name = "#{project_name}_#{environment_name}"
               task_name = "#{project_name}_#{service_name}_#{environment_name}"
               begin

@@ -22,7 +22,10 @@ module Shiprails
             region[:environments].each do |environment_name|
               cluster_name = "#{project_name}_#{environment_name}"
               unless created_groups.include? cluster_name
-                client.create_log_group({ log_group_name: cluster_name })
+                begin
+                  client.create_log_group({ log_group_name: cluster_name })
+                rescue Aws::CloudWatchLogs::Errors::ResourceAlreadyExistsException => err
+                end
                 say "Created #{cluster_name} log group."
                 created_groups << cluster_name
               end
@@ -53,7 +56,7 @@ module Shiprails
                 task_definition = {
                   container_definitions: [
                     {
-                      command: service[:command],
+                      command: [service[:command]],
                       cpu: service[:resources][:cpu_units],
                       essential: true,
                       environment: [
@@ -66,9 +69,9 @@ module Shiprails
                       log_configuration: {
                         log_driver: "awslogs",
                         options: {
-                          "awslog-group" => cluster_name,
+                          "awslogs-group" => cluster_name,
                           "awslogs-region" => region_name.to_s,
-                          "awslogs-stream-prefix" => ""
+                          "awslogs-stream-prefix" => service_name
                         }
                       },
                       memory: service[:resources][:memory_units],
@@ -149,7 +152,7 @@ module Shiprails
                 task_definition: task_definition_response.task_definition.task_definition_arn
               }
               (service[:ports] || []).each do |port|
-                if yes? "Should port #{port} for #{image_name} be load balanced?"
+                if yes? "Should port #{port} for #{image_name} be load balanced in #{environment_name}?"
                   ecs_service[:role] = "ecsServiceRole"
                   load_balancers = elb.describe_load_balancers.to_h
                   say "EC2 Load Balancers"

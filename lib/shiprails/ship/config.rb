@@ -21,12 +21,14 @@ module Shiprails
       end
 
       def update_ecs_tasks
+        environment = args.second
         return unless @version
         say "Updating config version for ECS tasks..."
         configuration[:services].each do |service_name, service|
           service[:regions].each do |region_name, region|
             ecs = Aws::ECS::Client.new(region: region_name.to_s)
             region[:environments].each do |environment_name|
+              next unless environment == environment_name
               cluster_name = "#{project_name}_#{environment_name}"
               task_name = "#{project_name}_#{service_name}_#{environment_name}"
               begin
@@ -56,12 +58,14 @@ module Shiprails
       end
 
       def update_ecs_services
+        environment = args.second
         return unless @version
         say "Updating ECS services..."
         configuration[:services].each do |service_name, service|
           service[:regions].each do |region_name, region|
             ecs = Aws::ECS::Client.new(region: region_name.to_s)
             region[:environments].each do |environment_name|
+              next unless environment == environment_name
               cluster_name = "#{project_name}_#{environment_name}"
               task_name = "#{project_name}_#{service_name}_#{environment_name}"
               begin

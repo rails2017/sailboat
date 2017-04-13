@@ -23,9 +23,9 @@ module Shiprails
     end
 
     desc "deploy", "Deploy services"
-    def deploy
+    def deploy(*command_args)
       require "shiprails/ship/deploy"
-      Deploy.start
+      Deploy.start command_args
     end
 
     desc "logs", "Fetch logs"
