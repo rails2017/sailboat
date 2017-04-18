@@ -35,6 +35,13 @@ module Shiprails
         say "Created CloudWatch Log groups.", :green
       end
 
+      def create_ecs_task_role
+        #
+        # TODO: create role for tasks to read config from S3
+        #
+        say "TODO: create task role", :blue
+      end
+
       def create_ecs_tasks
         say "Creating ECS tasks..."
         configuration[:services].each do |service_name, service|
@@ -53,6 +60,10 @@ module Shiprails
                 task_definition.delete :requires_attributes
                 say "Updating ECS task (#{task_name})."
               rescue Aws::ECS::Errors::ClientException => e
+                #
+                # TODO: set task role
+                #
+                say "TODO: set task role", :blue
                 task_definition = {
                   container_definitions: [
                     {
@@ -63,6 +74,7 @@ module Shiprails
                         { name: "AWS_REGION", value: region_name.to_s },
                         { name: "RACK_ENV", value: environment_name },
                         { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
+                        { name: "S3_CONFIG_ENVIRONMENT", value: environment_name },
                         { name: "S3_CONFIG_REVISION", value: "0" }
                       ],
                       image: "#{region[:repository_url]}:latest",
@@ -137,6 +149,22 @@ module Shiprails
             ecs = Aws::ECS::Client.new(region: region_name.to_s)
             elb = Aws::ElasticLoadBalancingV2::Client.new(region: region_name.to_s)
             region[:environments].each do |environment_name|
+              role_name = "#{project_name}_#{environment_name}-ecsServiceRole"
+              iam = Aws::IAM::Client.new
+              begin
+                role = iam.create_role({
+                  assume_role_policy_document: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":[\"ecs.amazonaws.com\"]},\"Action\":[\"sts:AssumeRole\"]}]}",
+                  path: "/",
+                  role_name: role_name,
+                })
+                iam.attach_role_policy({
+                  policy_arn: "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole",
+                  role_name: role_name,
+                })
+                say "Created ECS Service role..."
+              rescue Aws::IAM::Errors::EntityAlreadyExists => err
+              end
+
               cluster_name = "#{project_name}_#{environment_name}"
               task_name = "#{image_name}_#{environment_name}"
               task_definition_response = ecs.describe_task_definition({task_definition: task_name})
@@ -153,7 +181,7 @@ module Shiprails
               }
               (service[:ports] || []).each do |port|
                 if yes? "Should port #{port} for #{image_name} be load balanced in #{environment_name}?"
-                  ecs_service[:role] = "ecsServiceRole"
+                  ecs_service[:role] = role_name
                   load_balancers = elb.describe_load_balancers.to_h
                   say "EC2 Load Balancers"
                   choices = ["CREATE NEW ELB"] + load_balancers[:load_balancers].map{|lb| "#{lb[:load_balancer_name]} (#{lb[:load_balancer_arn]})" }

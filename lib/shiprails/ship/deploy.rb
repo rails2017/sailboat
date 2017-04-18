@@ -107,6 +107,7 @@ module Shiprails
                   { name: "GIT_SHA", value: git_sha },
                   { name: "RACK_ENV", value: environment_name },
                   { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
+                  { name: "S3_CONFIG_ENVIRONMENT", value: environment_name },
                   { name: "S3_CONFIG_REVISION", value: config_s3_version }
                 ]
                 say "Updated #{service_name} container (#{image_name})."
