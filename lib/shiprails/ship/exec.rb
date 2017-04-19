@@ -11,24 +11,24 @@ module Shiprails
         default: ".",
         desc: "Specify a configuration path"
       class_option "environment",
-        default: "production",
+        aliases: ["-e"],
         desc: "Specify the environment"
       class_option "region",
+        aliases: ["-r"],
         default: "us-west-2",
         desc: "Specify the region"
       class_option "service",
+        aliases: ["-a"],
         default: "app",
         desc: "Specify the service name"
       class_option "private-key",
-        default: "shiprails.pem",
+        aliases: ["-pk"],
         desc: "Specify the AWS SSH private key path"
 
       def run_command
-        region = options['region']
-        service = options['service']
-        cluster_name = "#{project_name}_#{options['environment']}"
+        cluster_name = "#{project_name}_#{environment}"
         command_string = args.join ' '
-        ssh_private_key_path = options['private-key']
+        ssh_private_key_path = private_key
         ecs_exec(region, cluster_name, service, command_string, ssh_private_key_path)
       end
 
@@ -46,8 +46,26 @@ module Shiprails
         @aws_access_key_secret ||= ask "AWS Access Key Secret", default: ENV.fetch("AWS_SECRET_ACCESS_KEY")
       end
 
+      def environment
+        environment = options[:environment] || "production" # default production
+        environments = configuration[:services][service.to_sym][:regions][region.to_sym][:environments]
+        environments.include?(environment) ? environment : environments.first
+      end
+
+      def private_key
+        options['private-key'] || configuration[:private_key_path] || "shiprails.pem"
+      end
+
       def project_name
         configuration[:project_name]
+      end
+
+      def region
+        options[:region]
+      end
+
+      def service
+        options[:service]
       end
 
       def ecs_exec(region, cluster, service, command, ssh_private_key_path, ssh_user: 'ec2-user')
@@ -100,6 +118,13 @@ module Shiprails
         command_array = ["docker run -it --rm"]
         task_definition_description.task_definition.container_definitions.first.environment.each do |env|
           command_array << "-e #{env.name}='#{env.value}'"
+        end
+        # add AWS keys from local env if missing
+        if task_definition_description.task_definition.container_definitions.first.environment.find{|env| env.name == "AWS_ACCESS_KEY_ID" }.nil?
+          command_array << "-e AWS_ACCESS_KEY_ID='#{ENV.fetch('AWS_ACCESS_KEY_ID')}'"
+        end
+        if task_definition_description.task_definition.container_definitions.first.environment.find{|env| env.name == "AWS_SECRET_ACCESS_KEY" }.nil?
+          command_array << "-e AWS_SECRET_ACCESS_KEY='#{ENV.fetch('AWS_SECRET_ACCESS_KEY')}'"
         end
         command_array << task_definition_description.task_definition.container_definitions.first.image
         command_array << command
