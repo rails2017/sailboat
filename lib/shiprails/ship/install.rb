@@ -47,8 +47,15 @@ module Shiprails
         @bucket_name = bucket_name
       end
 
+      def ec2_key_pair_name
+        # TODO: list ec2 key pairs; ask user to select 1 to use or create
+        @ec2_key_pair_name ||= "#{project_name}-shiprails"
+      end
+
       def ec2_ssh_private_key_path
+        # TODO: ask about @ec2_key_pair_name location
         @ec2_ssh_private_key_path ||= ask "Where is your AWS EC2 SSH private key?", default: 'shiprails.pem'
+        # TODO: verify the key there matches @ec2_key_pair_name's fingerprint
       end
 
       def environments

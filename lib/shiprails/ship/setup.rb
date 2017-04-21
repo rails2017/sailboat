@@ -1,6 +1,7 @@
 require "active_support/all"
 require "aws-sdk"
 require "git"
+require "json"
 require "thor/group"
 
 module Shiprails
@@ -35,15 +36,78 @@ module Shiprails
         say "Created CloudWatch Log groups.", :green
       end
 
-      def create_ecs_task_role
-        #
-        # TODO: create role for tasks to read config from S3
-        #
-        say "TODO: create task role", :blue
+      def create_iam_roles
+        iam = Aws::IAM::Client.new
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              begin
+                role_name = "#{project_name}_#{environment_name}-ecs-task"
+                role = iam.create_role({
+                  path: "/",
+                  role_name: role_name,
+                })
+                iam.put_role_policy({
+                  policy_document: JSON.generate({
+                      "Version": "2012-10-17",
+                      "Statement": [
+                          {
+                              "Sid": "Stmt1492034037000",
+                              "Effect": "Allow",
+                              "Action": [
+                                  "s3:GetObject"
+                              ],
+                              "Resource": [
+                                  "arn:aws:s3:::#{config_s3_bucket}/#{environment_name}/*",
+                              ]
+                          }
+                      ]
+                  }),
+                  policy_name: "#{role_name}-read-s3-config",
+                  role_name: role_name,
+                })
+                say "Created ECS task role..."
+
+                say "TODO: create cloudwatch logs read role", :blue
+                say "TODO: create scale role", :blue
+                say "TODO: create deploy IAM role", :blue
+                say "TODO: create run task IAM role", :blue
+                say "TODO: create exec interactive IAM role", :blue
+
+              rescue Aws::IAM::Errors::EntityAlreadyExists => err
+                say "ECS task role exists..."
+              end
+            end
+          end
+        end
+      end
+
+      def create_vpc
+        iam = Aws::IAM::Client.new
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              begin
+                name = "#{project_name}_#{environment_name}-ecs-task"
+
+                say "TODO: create vpc", :blue
+
+                say "TODO: create vpc subnets", :blue
+
+                say "TODO: create security groups", :blue
+
+              rescue Aws::IAM::Errors::EntityAlreadyExists => err
+                say "ECS task role exists..."
+              end
+            end
+          end
+        end
       end
 
       def create_ecs_tasks
         say "Creating ECS tasks..."
+        iam = Aws::IAM::Client.new
+        iam_roles = iam.list_roles
         configuration[:services].each do |service_name, service|
           image_name = "#{project_name}_#{service_name}"
           service[:regions].each do |region_name, region|
@@ -51,6 +115,42 @@ module Shiprails
             region[:environments].each do |environment_name|
               cluster_name = "#{project_name}_#{environment_name}"
               task_name = "#{image_name}_#{environment_name}"
+              ecs_task_role = iam_roles.find{ |role| role[:role_name] == "#{project_name}_#{environment_name}-ecs-task" }
+              task_definition = {
+                container_definitions: [
+                  {
+                    command: [service[:command]],
+                    cpu: service[:resources][:cpu_units],
+                    essential: true,
+                    environment: [
+                      { name: "AWS_REGION", value: region_name.to_s },
+                      { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
+                      { name: "S3_CONFIG_ENVIRONMENT", value: environment_name },
+                      { name: "S3_CONFIG_REVISION", value: "0" }
+                    ],
+                    image: "#{region[:repository_url]}:latest",
+                    log_configuration: {
+                      log_driver: "awslogs",
+                      options: {
+                        "awslogs-group" => cluster_name,
+                        "awslogs-region" => region_name.to_s,
+                        "awslogs-stream-prefix" => service_name
+                      }
+                    },
+                    memory: service[:resources][:memory_units],
+                    name: service_name,
+                    port_mappings: (service[:ports] || []).map { |port|
+                      {
+                        container_port: port,
+                        host_port: 0,
+                        protocol: "tcp"
+                      }
+                    },
+                    task_role_arn: ecs_task_role.arn
+                  }
+                ],
+                family: task_name
+              }
               begin
                 task_definition_description = ecs.describe_task_definition({task_definition: task_name})
                 task_definition = task_definition_description.task_definition.to_hash
@@ -60,45 +160,6 @@ module Shiprails
                 task_definition.delete :requires_attributes
                 say "Updating ECS task (#{task_name})."
               rescue Aws::ECS::Errors::ClientException => e
-                #
-                # TODO: set task role
-                #
-                say "TODO: set task role", :blue
-                task_definition = {
-                  container_definitions: [
-                    {
-                      command: [service[:command]],
-                      cpu: service[:resources][:cpu_units],
-                      essential: true,
-                      environment: [
-                        { name: "AWS_REGION", value: region_name.to_s },
-                        { name: "RACK_ENV", value: environment_name },
-                        { name: "S3_CONFIG_BUCKET", value: config_s3_bucket },
-                        { name: "S3_CONFIG_ENVIRONMENT", value: environment_name },
-                        { name: "S3_CONFIG_REVISION", value: "0" }
-                      ],
-                      image: "#{region[:repository_url]}:latest",
-                      log_configuration: {
-                        log_driver: "awslogs",
-                        options: {
-                          "awslogs-group" => cluster_name,
-                          "awslogs-region" => region_name.to_s,
-                          "awslogs-stream-prefix" => service_name
-                        }
-                      },
-                      memory: service[:resources][:memory_units],
-                      name: service_name,
-                      port_mappings: (service[:ports] || []).map { |port|
-                        {
-                          container_port: port,
-                          host_port: 0,
-                          protocol: "tcp"
-                        }
-                      }
-                    }
-                  ],
-                  family: task_name
-                }
                 say "Creating new ECS task (#{task_name})!"
               end
               task_definition_response = ecs.register_task_definition(task_definition)
@@ -130,6 +191,66 @@ module Shiprails
       end
 
       def create_ec2_launch_configurations
+        say "Creating EC2 Launch Configurations..."
+        launch_configuration_names = []
+        configuration[:services].each do |service_name, service|
+          image_name = "#{project_name}_#{service_name}"
+          service[:regions].each do |region_name, region|
+
+            # TODO: find the ami for this region
+            ami_id = "ami-62d35c02"
+
+            autoscaling = Aws::AutoScaling::Client.new(region: region_name.to_s)
+            region[:environments].each do |environment_name|
+              launch_configuration_name = "#{project_name}_#{environment_name}-v1"
+              next if launch_configuration_names.include? launch_configuration_name
+              launch_configuration_names << launch_configuration_name
+              begin
+                autoscaling.create_launch_configuration({
+                  launch_configuration_name: launch_configuration_name,
+                  image_id: ami_id,
+                  key_name: configuration[:key_pair_name],
+                  security_groups: ["XmlString"],
+                  classic_link_vpc_id: "XmlStringMaxLen255",
+                  classic_link_vpc_security_groups: ["XmlStringMaxLen255"],
+                  user_data: "XmlStringUserData",
+                  instance_id: "XmlStringMaxLen19",
+                  instance_type: "XmlStringMaxLen255",
+                  kernel_id: "XmlStringMaxLen255",
+                  ramdisk_id: "XmlStringMaxLen255",
+                  block_device_mappings: [
+                    {
+                      virtual_name: "XmlStringMaxLen255",
+                      device_name: "XmlStringMaxLen255", # required
+                      ebs: {
+                        snapshot_id: "XmlStringMaxLen255",
+                        volume_size: 1,
+                        volume_type: "BlockDeviceEbsVolumeType",
+                        delete_on_termination: false,
+                        iops: 1,
+                        encrypted: false,
+                      },
+                      no_device: false,
+                    },
+                  ],
+                  instance_monitoring: {
+                    enabled: false,
+                  },
+                  spot_price: "SpotPrice",
+                  iam_instance_profile: "XmlStringMaxLen1600",
+                  ebs_optimized: false,
+                  associate_public_ip_address: false,
+                  placement_tenancy: "XmlStringMaxLen64",
+                })
+              rescue
+              end
+              say "Created EC2 Launch Configuration (#{launch_configuration_name})!"
+            end
+          end
+        end
+        say "Created EC2 Launch Configurations!", :green
+
+
         say "TODO: create cluster launch config", :blue
       end
 
@@ -239,14 +360,6 @@ module Shiprails
 
       def create_cloudwatch_elb_alarms
         say "TODO: create cloudwatch alarms for elb latency / service units", :blue
-      end
-
-      def create_iam_groups
-        say "TODO: create cloudwatch logs read group", :blue
-        say "TODO: create scale group", :blue
-        say "TODO: create deploy IAM group", :blue
-        say "TODO: create run task IAM group", :blue
-        say "TODO: create exec interactive IAM group", :blue
       end
 
       private
