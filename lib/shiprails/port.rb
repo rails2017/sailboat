@@ -16,6 +16,20 @@ module Shiprails
       say "TODO: store development config vars"
     end
 
+    desc "exec", "Run interactive commands"
+    method_option "no-rm",
+      default: false,
+      desc: "Remove container changes after use",
+      type: :boolean
+    def exec(*command_args)
+      build_command_args = ["docker-compose", "run"]
+      build_command_args << "--rm" unless options['no-rm']
+      build_command_args << "app"
+      build_command_args += command_args
+      command_string = build_command_args.join(' ')
+      run command_string
+    end
+
     desc "up", "Hoist app and services"
     def up
       run "docker-compose up"
