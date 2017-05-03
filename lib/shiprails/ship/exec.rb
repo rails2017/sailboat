@@ -32,6 +32,16 @@ module Shiprails
         ecs_exec(region, cluster_name, service, command_string, ssh_private_key_path)
       end
 
+      no_commands do
+        def run_shorthand_command(command_args=nil, opts=nil)
+          options = opts unless opts.nil?
+          cluster_name = "#{project_name}_#{environment}"
+          command_string = command_args.join ' '
+          ssh_private_key_path = private_key
+          ecs_exec(region, cluster_name, service, command_string, ssh_private_key_path)
+        end
+      end
+
       private
 
       def configuration

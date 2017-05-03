@@ -51,10 +51,39 @@ module Shiprails
       Scale.start
     end
 
-    private
+    def self.configuration
+      YAML.load(File.read(".shiprails.yml")).deep_symbolize_keys rescue {}
+    end
 
-    def configuration
-      YAML.load(File.read(".shiprails.yml")).deep_symbolize_keys
+    if commands = configuration[:exec]
+      commands.each do |name, command|
+        desc name, "ship exec #{command}"
+        method_option "path",
+          aliases: ["-p"],
+          default: ".",
+          desc: "Specify a configuration path"
+        method_option "environment",
+          aliases: ["-e"],
+          desc: "Specify the environment"
+        method_option "region",
+          aliases: ["-r"],
+          default: "us-west-2",
+          desc: "Specify the region"
+        method_option "service",
+          aliases: ["-a"],
+          default: "app",
+          desc: "Specify the service name"
+        method_option "private-key",
+          aliases: ["-pk"],
+          desc: "Specify the AWS SSH private key path"
+        define_method name.to_sym do |*command_args|
+          require "shiprails/ship/exec"
+          built_arguments = command.split(' ') + command_args
+          built_options = options.map{|k,v| "--#{k} #{v}"}
+          script = Exec.new built_arguments, built_options
+          script.run_shorthand_command built_arguments, options
+        end
+      end
     end
 
   end
