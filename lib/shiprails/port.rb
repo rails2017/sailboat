@@ -21,32 +21,26 @@ module Shiprails
       run "docker-compose up"
     end
 
-    desc "bundle", "Run bundler commands"
-    def bundle(*command)
-      command_string = command.join(' ')
-      if command_string.start_with?("exec")
-        run "docker-compose run --rm app bundle #{command_string}"
-      else
-        run "docker-compose run app bundle #{command_string}"
+    def self.configuration
+      YAML.load(File.read(".shiprails.yml")).deep_symbolize_keys rescue {}
+    end
+
+    if commands = configuration[:exec]
+      commands.each do |name, command|
+        desc name, "port exec #{command}"
+        method_option "no-rm",
+          default: false,
+          desc: "Remove container changes after use",
+          type: :boolean
+        define_method name.to_sym do |*command_args|
+          build_command_args = ["docker-compose", "run"]
+          build_command_args << "--rm" unless options['no-rm']
+          build_command_args << "app"
+          build_command_args += command.split(' ') + command_args
+          command_string = build_command_args.join(' ')
+          run command_string
+        end
       end
-    end
-
-    desc "rails", "Run rails commands"
-    def rails(*command)
-      command_string = command.join(' ')
-      run "docker-compose run --rm app bundle exec rails #{command_string}"
-    end
-
-    desc "bash", "Run bash commands"
-    def bash(*command)
-      command_string = command.join(' ')
-      run "docker-compose run --rm app bash #{command_string}"
-    end
-
-    private
-
-    def configuration
-      YAML.load(File.read(".shiprails.yml")).deep_symbolize_keys
     end
 
   end

@@ -85,6 +85,6 @@ module Shiprails
         end
       end
     end
-
+    
   end
 end
