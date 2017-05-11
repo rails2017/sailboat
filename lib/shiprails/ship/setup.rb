@@ -1,5 +1,6 @@
 require "active_support/all"
 require "aws-sdk"
+require "base64"
 require "git"
 require "thor/group"
 
@@ -35,11 +36,184 @@ module Shiprails
         say "Created CloudWatch Log groups.", :green
       end
 
+      def create_vpcs
+        say "Creating VPCs..."
+        created_vpcs = []
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            ec2 = Aws::EC2::Client.new region: region_name.to_s
+            region[:environments].each do |environment_name|
+              vpc_name = "#{project_name}_#{environment_name}"
+              unless created_vpcs.include? vpc_name
+                begin
+                  vpcs = ec2.describe_vpcs.vpcs
+                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == "#{project_name}_#{environment_name}" }
+                  next unless vpc.nil?
+                  vpc_cidr_block = "10.0.0.0/16"
+                  vpc = ec2.create_vpc({
+                    amazon_provided_ipv_6_cidr_block: true,
+                    cidr_block: vpc_cidr_block,
+                  })
+                  vpc.modify_attribute({
+                    enable_dns_support: { value: true }
+                  })
+                  vpc.create_tags({ tags: [{ key: 'Name', value: vpc_name }]})
+                  availability_zones = ec2.describe_availability_zones({
+                    filters: [{
+                      name: "state",
+                      values: ["available"]
+                    }]
+                  }).availability_zones
+                  bits = 16
+                  while true
+                    begin
+                      NetAddr::CIDR.create(vpc_cidr_block).subnet(:Bits => bits, :NumSubnets => availability_zones.count)
+                    rescue
+                      bits += 1
+                      retry
+                    end
+                    break
+                  end
+                  cidr_blocks = NetAddr::CIDR.create(vpc_cidr_block).subnet(:Bits => bits, :NumSubnets => availability_zones.count)
+                  availability_zones.each_with_index do |zone, idx|
+                    ec2.create_subnet({
+                      vpc_id: vpc.vpc_id,
+                      cidr_block: cidr_blocks[idx],
+                      ipv_6_cidr_block: "2600:1f14:508:ea#{idx.to_s.rjust(2, '0')}::/64",
+                      availability_zone: zone.zone_name,
+                    })
+                  end
+                  ec2.create_route_table({
+                    vpc_id: vpc.vpc_id,
+                  })
+                  ig = ec2.create_internet_gateway.internet_gateway
+                  ec2.attach_internet_gateway({
+                    internet_gateway_id: ig.internet_gateway_id,
+                    vpc_id: vpc.vpc_id,
+                  })
+                # rescue Aws::IAM::Errors::EntityAlreadyExists => err
+                end
+                say "Created #{vpc_name} VPC."
+                created_vpcs << vpc_name
+              end
+            end
+          end
+        end
+        say "Created VPCs.", :green
+      end
+
+      def create_security_groups
+        say "TODO: create security groups", :blue
+      end
+
+      def create_access_keys
+        say "TODO: create access keys for SSH", :blue
+      end
+
+      def create_ecs_autoscale_role
+        say "Creating ECS AutoScaling IAM roles..."
+        iam = Aws::IAM::Client.new
+        created_roles = []
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              role_name = "#{project_name}_#{environment_name}-ecsAutoScaling"
+              unless created_roles.include? role_name
+                begin
+                  role = iam.create_role({
+                    assume_role_policy_document: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":[\"application-autoscaling.amazonaws.com\"]},\"Action\":[\"sts:AssumeRole\"]}]}",
+                    path: "/",
+                    role_name: role_name,
+                  })
+                  iam.attach_role_policy({
+                    policy_arn: "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole",
+                    role_name: role_name,
+                  })
+                rescue Aws::IAM::Errors::EntityAlreadyExists => err
+                end
+                say "Created #{role_name} IAM role."
+                created_roles << role_name
+              end
+            end
+          end
+        end
+        say "Created ECS AutoScaling IAM roles.", :green
+      end
+
+      def create_ecs_instance_role
+        say "Creating ECS EC2 Instance IAM roles..."
+        iam = Aws::IAM::Client.new
+        created_roles = []
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              role_name = "#{project_name}_#{environment_name}-ecsInstanceRole"
+              unless created_roles.include? role_name
+                begin
+                  role = iam.create_role({
+                    assume_role_policy_document: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":[\"ec2.amazonaws.com\"]},\"Action\":[\"sts:AssumeRole\"]}]}",
+                    path: "/",
+                    role_name: role_name,
+                  })
+                  iam.attach_role_policy({
+                    policy_arn: "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role",
+                    role_name: role_name,
+                  })
+                  iam.put_role_policy({
+                    policy_document: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Action\":[\"logs:CreateLogGroup\",\"logs:CreateLogStream\",\"logs:DescribeLogGroups\",\"logs:DescribeLogStreams\",\"logs:PutLogEvents\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:logs:#{region_name.to_s}:#{aws_account_number}:log-group:#{project_name}_#{environment_name}\"}]}",
+                    policy_name: "ecs-cloudwatch-logs",
+                    role_name: role_name,
+                  })
+                  iam.put_role_policy({
+                    policy_document: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"ecs:DescribeTasks\",\"ecs:ListContainerInstances\",\"ecs:ListTasks\",\"ecs:StartTask\",\"ecs:StopTask\"],\"Resource\":\"arn:aws:ecs:#{region_name.to_s}:#{aws_account_number}:cluster/#{project_name}_#{environment_name}\"}]}",
+                    policy_name: "ecs-tasks",
+                    role_name: role_name,
+                  })
+                  iam.put_role_policy({
+                    policy_document: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"Stmt1492034037000\",\"Effect\":\"Allow\",\"Action\":[\"s3:Get*\"],\"Resource\":[\"arn:aws:s3:::#{project_name}-config/#{environment_name}/*\"]}]}",
+                    policy_name: "read-config-from-s3",
+                    role_name: role_name,
+                  })
+                rescue Aws::IAM::Errors::EntityAlreadyExists => err
+                end
+                say "Created #{role_name} IAM role."
+                created_roles << role_name
+              end
+            end
+          end
+        end
+        say "Created ECS EC2 Instance IAM roles.", :green
+      end
+
       def create_ecs_task_role
-        #
-        # TODO: create role for tasks to read config from S3
-        #
-        say "TODO: create task role", :blue
+        say "Creating ECS Task IAM roles..."
+        iam = Aws::IAM::Client.new
+        created_roles = []
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              role_name = "#{project_name}_#{environment_name}-ecs-task"
+              unless created_roles.include? role_name
+                begin
+                  role = iam.create_role({
+                    assume_role_policy_document: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":[\"ecs-tasks.amazonaws.com\"]},\"Action\":[\"sts:AssumeRole\"]}]}",
+                    path: "/",
+                    role_name: role_name,
+                  })
+                  iam.put_role_policy({
+                    policy_document: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"Stmt1492034037000\",\"Effect\":\"Allow\",\"Action\":[\"s3:Get*\"],\"Resource\":[\"arn:aws:s3:::#{project_name}-config/#{environment_name}/*\"]}]}",
+                    policy_name: "read-config-from-s3",
+                    role_name: role_name,
+                  })
+                rescue Aws::IAM::Errors::EntityAlreadyExists => err
+                end
+                say "Created #{role_name} IAM role."
+                created_roles << role_name
+              end
+            end
+          end
+        end
+        say "Created ECS Task IAM roles.", :green
       end
 
       def create_ecs_tasks
@@ -60,10 +234,6 @@ module Shiprails
                 task_definition.delete :requires_attributes
                 say "Updating ECS task (#{task_name})."
               rescue Aws::ECS::Errors::ClientException => e
-                #
-                # TODO: set task role
-                #
-                say "TODO: set task role", :blue
                 task_definition = {
                   container_definitions: [
                     {
@@ -97,7 +267,8 @@ module Shiprails
                       }
                     }
                   ],
-                  family: task_name
+                  family: task_name,
+                  task_role_arn: "arn:aws:iam::#{aws_account_number}:role/#{project_name}_#{environment_name}-ecs-task"
                 }
                 say "Creating new ECS task (#{task_name})!"
               end
@@ -130,15 +301,124 @@ module Shiprails
       end
 
       def create_ec2_launch_configurations
-        say "TODO: create cluster launch config", :blue
+        say "Creating EC2 LaunchConfigurations..."
+        autoscaling = Aws::AutoScaling::Client.new
+        created_launch_configurations = []
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              launch_configuration_name = "#{project_name}_#{environment_name}-v1"
+              unless created_launch_configurations.include? launch_configuration_name
+                begin
+                  ec2 = Aws::EC2::Client.new(region: region_name.to_s)
+                  images = ec2.describe_images({
+                    filters: [
+                      {
+                        name: 'name',
+                        values: ['amzn-ami-201*-amazon-ecs-optimized']
+                      },
+                      {
+                        name: 'owner-alias',
+                        values: ['amazon']
+                      },
+                      {
+                        name: 'state',
+                        values: ['available']
+                      },
+                    ],
+                  }).images
+                  image = images.sort_by(&:name).last # get the newest version
+                  vpcs = ec2.describe_vpcs.vpcs
+                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == "#{project_name}_#{environment_name}" }
+                  # TODO: get security group id for ECS group
+                  security_groups = ec2.describe_security_groups({
+                    filters: [
+                      {
+                        name: "vpc-id",
+                        values: [
+                          vpc.vpc_id
+                        ],
+                      },
+                    ],
+                  }).security_groups
+                  security_group = security_groups.find{ |group| group.group_name == "#{project_name}_#{environment_name}-ecs" }
+                  autoscaling.create_launch_configuration({
+                    block_device_mappings: [
+                      {
+                        device_name: "/dev/xvdcz",
+                        ebs: {
+                          delete_on_termination: true,
+                          encrypted: false,
+                          volume_size: 22,
+                          volume_type: "gp2",
+                        },
+                      },
+                    ],
+                    iam_instance_profile: "#{project_name}_#{environment_name}-ecsInstanceRole",
+                    image_id: image.image_id,
+                    instance_type: "t2.small",
+                    key_name: "#{project_name}_#{environment_name}"
+                    launch_configuration_name: launch_configuration_name,
+                    security_groups: [ security_group.group_id ],
+                    user_data: Base64.encode64("#!/bin/bash
+echo ECS_CLUSTER=#{project_name}_#{environment_name} >> /etc/ecs/ecs.config"),
+                  })
+                rescue Aws::AutoScaling::Errors::AlreadyExistsFault
+                  say "TODO: update LaunchConfiguration with latest stuff.", :blue
+                end
+                created_launch_configurations << launch_configuration_name
+              end
+            end
+          end
+        end
+        say "Created EC2 LaunchConfigurations!", :green
       end
 
       def create_ec2_autoscaling_groups
-        say "TODO: create cluster group", :blue
-      end
-
-      def create_cloudwatch_ecs_alarms
-        say "TODO: create cloudwatch alarms for cluster memory", :blue
+        say "Creating EC2 AutoScaling Groups..."
+        autoscaling = Aws::AutoScaling::Client.new
+        created_auto_scaling_groups = []
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              group_name = "#{project_name}_#{environment_name}"
+              unless created_auto_scaling_groups.include? group_name
+                ec2 = Aws::EC2::Client.new region: region_name.to_s
+                vpcs = ec2.describe_vpcs.vpcs
+                vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == "#{project_name}_#{environment_name}" }
+                subnets = ec2.describe_subnets({
+                  filters: [
+                    {
+                      name: "vpc-id",
+                      values: [
+                        vpc.vpc_id
+                      ],
+                    },
+                  ],
+                }).subnets
+                zones_in_region = subnets.map(&:availability_zone)
+                subnets_in_region = subnets.map(&:subnet_id)
+                begin
+                  autoscaling.create_auto_scaling_group({
+                    auto_scaling_group_name: group_name,
+                    availability_zones: zones_in_region,
+                    default_cooldown: 300,
+                    health_check_grace_period: 300,
+                    health_check_type: "EC2",
+                    launch_configuration_name: "#{project_name}_#{environment_name}-v1",
+                    max_size: 10,
+                    min_size: 1,
+                    vpc_zone_identifier: subnets_in_region.join(',')
+                  })
+                rescue Aws::AutoScaling::Errors::AlreadyExistsFault
+                  say "TODO: update AutoScaling Group with latest stuff like LaunchConfiguration name.", :blue
+                end
+                created_auto_scaling_groups << group_name
+              end
+            end
+          end
+        end
+        say "Created EC2 LaunchConfigurations!", :green
       end
 
       def create_ecs_services
@@ -237,6 +517,10 @@ module Shiprails
         say "Created ECS services!", :green
       end
 
+      def create_cloudwatch_ecs_alarms
+        say "TODO: create cloudwatch alarms for cluster memory", :blue
+      end
+
       def create_cloudwatch_elb_alarms
         say "TODO: create cloudwatch alarms for elb latency / service units", :blue
       end
@@ -257,6 +541,10 @@ module Shiprails
 
       def aws_access_key_secret
         @aws_access_key_secret ||= ask "AWS Access Key Secret", default: ENV.fetch("AWS_SECRET_ACCESS_KEY")
+      end
+
+      def aws_account_number
+        @aws_account_number ||= Aws::STS::Client.new().get_caller_identity.account
       end
 
       def configuration
