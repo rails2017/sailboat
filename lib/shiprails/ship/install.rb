@@ -48,7 +48,7 @@ module Shiprails
       end
 
       def ec2_ssh_private_key_path
-        @ec2_ssh_private_key_path ||= ask "Where is your AWS EC2 SSH private key?", default: 'shiprails.pem'
+        @ec2_ssh_private_key_path ||= ask "Where is your AWS EC2 SSH private key?", default: "#{project_name}.pem"
       end
 
       def environments

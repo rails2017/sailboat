@@ -3,6 +3,7 @@ require "aws-sdk"
 require "base64"
 require "fileutils"
 require "git"
+require "netaddr"
 require "thor/group"
 
 module Shiprails
@@ -48,13 +49,18 @@ module Shiprails
               unless created_vpcs.include? vpc_name
                 begin
                   vpcs = ec2.describe_vpcs.vpcs
-                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == vpc_name }
-                  next unless vpc.nil?
+                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.try(:value) == vpc_name }
+                  unless vpc.nil?
+                    say "Found #{vpc_name}."
+                    next
+                  end
+                  say "Setting up #{vpc_name}."
                   vpc_cidr_block = "10.0.0.0/16"
                   vpc = ec2.create_vpc({
                     amazon_provided_ipv_6_cidr_block: true,
                     cidr_block: vpc_cidr_block,
-                  })
+                  }).vpc
+                  vpc = Aws::EC2::Vpc.new client: ec2, id: vpc.vpc_id
                   vpc.modify_attribute({
                     enable_dns_support: { value: true }
                   })
@@ -65,13 +71,14 @@ module Shiprails
                       values: ["available"]
                     }]
                   }).availability_zones
+                  say "Creating #{availability_zones.length} availability zones."
                   bits = 16
                   while true
                     begin
                       NetAddr::CIDR.create(vpc_cidr_block).subnet(:Bits => bits, :NumSubnets => availability_zones.count)
                     rescue
                       bits += 1
-                      retry
+                      retry if bits <= 32
                     end
                     break
                   end
@@ -80,18 +87,21 @@ module Shiprails
                     ec2.create_subnet({
                       vpc_id: vpc.vpc_id,
                       cidr_block: cidr_blocks[idx],
-                      ipv_6_cidr_block: "2600:1f14:508:ea#{idx.to_s.rjust(2, '0')}::/64",
+                      ipv_6_cidr_block: "2001:db8:1234:1a#{idx.to_s.rjust(2, '0')}::/64",
                       availability_zone: zone.zone_name,
                     })
+                    say "Created subnet for #{zone.zone_name} availability zone (#{vpc_name})."
                   end
                   ec2.create_route_table({
                     vpc_id: vpc.vpc_id,
                   })
+                  say "Created route table for #{vpc_name}."
                   ig = ec2.create_internet_gateway.internet_gateway
                   ec2.attach_internet_gateway({
                     internet_gateway_id: ig.internet_gateway_id,
                     vpc_id: vpc.vpc_id,
                   })
+                  say "Created internet gateway for #{vpc_name}."
                 # rescue Aws::IAM::Errors::EntityAlreadyExists => err
                 end
                 say "Created #{vpc_name} VPC."
@@ -232,7 +242,8 @@ module Shiprails
                       },
                     ]
                   })
-                # rescue Aws::IAM::Errors::EntityAlreadyExists => err
+                rescue Aws::EC2::Errors::InvalidGroupDuplicate => err
+                  say "Security groups for #{vpc_name} VPC already setup."
                 end
                 say "Created security groups for #{vpc_name} VPC."
                 completed_vpcs << vpc_name
@@ -249,15 +260,15 @@ module Shiprails
         configuration[:services].each do |service_name, service|
           service[:regions].each do |region_name, region|
             region[:environments].each do |environment_name|
-              key_pair_name = "#{project_name}_#{environment_name}"
+              key_pair_name = "#{project_name}"
               unless created_key_pairs.include? key_pair_name
                 begin
                   ec2 = Aws::EC2::Client.new(region: region_name.to_s)
                   key_pair = ec2.create_key_pair({
                     key_name: key_pair_name
                   })
-                  File.open("#{project_name}_#{environment_name}.pem", 'w') { |file| file.write(key_pair.key_material) }
-                  FileUtils.chmod 0600, "#{project_name}_#{environment_name}.pem"
+                  File.open("#{project_name}.pem", 'w') { |file| file.write(key_pair.key_material) }
+                  FileUtils.chmod 0600, "#{project_name}.pem"
                 end
               end
             end
@@ -512,7 +523,7 @@ module Shiprails
                     iam_instance_profile: "#{project_name}_#{environment_name}-ecsInstanceRole",
                     image_id: image.image_id,
                     instance_type: "t2.small",
-                    key_name: "#{project_name}_#{environment_name}"
+                    key_name: "#{project_name}",
                     launch_configuration_name: launch_configuration_name,
                     security_groups: [ security_group.group_id ],
                     user_data: Base64.encode64("#!/bin/bash
