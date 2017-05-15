@@ -1,6 +1,7 @@
 require "active_support/all"
 require "aws-sdk"
 require "base64"
+require "fileutils"
 require "git"
 require "thor/group"
 
@@ -47,7 +48,7 @@ module Shiprails
               unless created_vpcs.include? vpc_name
                 begin
                   vpcs = ec2.describe_vpcs.vpcs
-                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == "#{project_name}_#{environment_name}" }
+                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == vpc_name }
                   next unless vpc.nil?
                   vpc_cidr_block = "10.0.0.0/16"
                   vpc = ec2.create_vpc({
@@ -103,11 +104,166 @@ module Shiprails
       end
 
       def create_security_groups
-        say "TODO: create security groups", :blue
+        say "Creating security groups..."
+        completed_vpcs = []
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            ec2 = Aws::EC2::Client.new region: region_name.to_s
+            region[:environments].each do |environment_name|
+              vpc_name = "#{project_name}_#{environment_name}"
+              unless completed_vpcs.include? vpc_name
+                begin
+                  vpcs = ec2.describe_vpcs.vpcs
+                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == vpc_name }
+                  ecs_security_group_id = ec2.create_security_group({
+                    group_name: "ecs-#{vpc_name}",
+                    description: "ECS cluster instances",
+                    vpc_id: vpc.vpc_id
+                  }).group_id
+                  elb_security_group_id = ec2.create_security_group({
+                    group_name: "elb-#{vpc_name}",
+                    description: "ELB instances",
+                    vpc_id: vpc.vpc_id
+                  }).group_id
+                  public_web_security_group_id = ec2.create_security_group({
+                    group_name: "public-web-#{vpc_name}",
+                    description: "Public web ingress",
+                    vpc_id: vpc.vpc_id
+                  }).group_id
+                  datastores_security_group_id = ec2.create_security_group({
+                    group_name: "datastores-#{vpc_name}",
+                    description: "RDS, ElastiCache, etc. instances",
+                    vpc_id: vpc.vpc_id
+                  }).group_id
+                  team_access_security_group_id = ec2.create_security_group({
+                    group_name: "team-access-#{vpc_name}",
+                    description: "Ingress for team members",
+                    vpc_id: vpc.vpc_id
+                  }).group_id
+                  # allow ECS instances to receive traffic from ELBs
+                  ec2.authorize_security_group_ingress({
+                    group_id: ecs_security_group_id,
+                    source_security_group_name: "elb-#{vpc_name}",
+                  })
+                  # allow public web group to receive traffic from the web
+                  ec2.authorize_security_group_ingress({
+                    group_id: public_web_security_group_id,
+                    ip_permissions: [
+                      {
+                        prefix_list_ids: [],
+                        from_port: "80",
+                        ip_ranges: [{
+                          cidr_ip: "0.0.0.0/0"
+                        }],
+                        to_port: "80",
+                        ip_protocol: "tcp",
+                        user_id_group_pairs: [],
+                        ipv_6_ranges: [{
+                          cidr_ipv_6: "::/0"
+                        }]
+                      },
+                      {
+                        prefix_list_ids: [],
+                        from_port: "443",
+                        ip_ranges: [{
+                          cidr_ip: "0.0.0.0/0"
+                        }],
+                        to_port: "443",
+                        ip_protocol: "-1",
+                        user_id_group_pairs: [],
+                        ipv_6_ranges: [{
+                          cidr_ipv_6: "::/0"
+                        }]
+                      },
+                    ]
+                  })
+                  # allow datastore instances to receive traffic from ECS instances
+                  current_ip_address = `curl http://ipecho.net/plain`
+                  ec2.authorize_security_group_ingress({
+                    group_id: team_access_security_group_id,
+                    ip_permissions: [
+                      {
+                        prefix_list_ids: [],
+                        from_port: "-1",
+                        ip_ranges: [{
+                          cidr_ip: "#{current_ip_address}/32"
+                        }],
+                        to_port: "-1",
+                        ip_protocol: "-1",
+                        user_id_group_pairs: [],
+                        ipv_6_ranges: []
+                      },
+                    ]
+                  })
+                  # allow ELBs to access ECS instances
+                  ec2.authorize_security_group_egress({
+                    group_id: elb_security_group_id,
+                    source_security_group_name: "ecs-#{vpc_name}",
+                  })
+                  # allow ECS instances to access the public web
+                  ec2.authorize_security_group_egress({
+                    group_id: ecs_security_group_id,
+                    ip_permissions: [
+                      {
+                        prefix_list_ids: [],
+                        from_port: "80",
+                        ip_ranges: [{
+                          cidr_ip: "0.0.0.0/0"
+                        }],
+                        to_port: "80",
+                        ip_protocol: "tcp",
+                        user_id_group_pairs: [],
+                        ipv_6_ranges: [{
+                          cidr_ipv_6: "::/0"
+                        }]
+                      },
+                      {
+                        prefix_list_ids: [],
+                        from_port: "443",
+                        ip_ranges: [{
+                          cidr_ip: "0.0.0.0/0"
+                        }],
+                        to_port: "443",
+                        ip_protocol: "-1",
+                        user_id_group_pairs: [],
+                        ipv_6_ranges: [{
+                          cidr_ipv_6: "::/0"
+                        }]
+                      },
+                    ]
+                  })
+                # rescue Aws::IAM::Errors::EntityAlreadyExists => err
+                end
+                say "Created security groups for #{vpc_name} VPC."
+                completed_vpcs << vpc_name
+              end
+            end
+          end
+        end
+        say "Created security groups..", :green
       end
 
-      def create_access_keys
-        say "TODO: create access keys for SSH", :blue
+      def create_key_pairs
+        say "Creating EC2 key pairs..."
+        created_key_pairs = []
+        configuration[:services].each do |service_name, service|
+          service[:regions].each do |region_name, region|
+            region[:environments].each do |environment_name|
+              key_pair_name = "#{project_name}_#{environment_name}"
+              unless created_key_pairs.include? key_pair_name
+                begin
+                  ec2 = Aws::EC2::Client.new(region: region_name.to_s)
+                  key_pair = ec2.create_key_pair({
+                    key_name: key_pair_name
+                  })
+                  File.open("#{project_name}_#{environment_name}.pem", 'w') { |file| file.write(key_pair.key_material) }
+                  FileUtils.chmod 0600, "#{project_name}_#{environment_name}.pem"
+                end
+              end
+            end
+          end
+        end
+        say "Created EC2 key pairs.", :green
       end
 
       def create_ecs_autoscale_role
@@ -330,7 +486,6 @@ module Shiprails
                   image = images.sort_by(&:name).last # get the newest version
                   vpcs = ec2.describe_vpcs.vpcs
                   vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == "#{project_name}_#{environment_name}" }
-                  # TODO: get security group id for ECS group
                   security_groups = ec2.describe_security_groups({
                     filters: [
                       {
@@ -341,7 +496,7 @@ module Shiprails
                       },
                     ],
                   }).security_groups
-                  security_group = security_groups.find{ |group| group.group_name == "#{project_name}_#{environment_name}-ecs" }
+                  security_group = security_groups.find{ |group| group.group_name == "ecs-#{project_name}_#{environment_name}" }
                   autoscaling.create_launch_configuration({
                     block_device_mappings: [
                       {
