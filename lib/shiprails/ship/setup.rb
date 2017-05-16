@@ -83,25 +83,36 @@ module Shiprails
                     break
                   end
                   cidr_blocks = NetAddr::CIDR.create(vpc_cidr_block).subnet(:Bits => bits, :NumSubnets => availability_zones.count)
+                  v6_cidr_blocks = NetAddr::CIDR.create(vpc.ipv_6_cidr_block_association_set.first.ipv_6_cidr_block).subnet(:Bits => 64, :NumSubnets => availability_zones.count)
                   availability_zones.each_with_index do |zone, idx|
                     ec2.create_subnet({
                       vpc_id: vpc.vpc_id,
                       cidr_block: cidr_blocks[idx],
-                      ipv_6_cidr_block: "2001:db8:1234:1a#{idx.to_s.rjust(2, '0')}::/64",
+                      ipv_6_cidr_block: v6_cidr_blocks[idx],
                       availability_zone: zone.zone_name,
                     })
                     say "Created subnet for #{zone.zone_name} availability zone (#{vpc_name})."
                   end
-                  ec2.create_route_table({
-                    vpc_id: vpc.vpc_id,
-                  })
-                  say "Created route table for #{vpc_name}."
                   ig = ec2.create_internet_gateway.internet_gateway
                   ec2.attach_internet_gateway({
                     internet_gateway_id: ig.internet_gateway_id,
                     vpc_id: vpc.vpc_id,
                   })
                   say "Created internet gateway for #{vpc_name}."
+                  route_table = ec2.create_route_table({
+                    vpc_id: vpc.vpc_id,
+                  }).route_table
+                  say "Created route table for #{vpc_name}."
+                  ec2.create_route({
+                    destination_cidr_block: "0.0.0.0/0",
+                    gateway_id: ig.internet_gateway_id,
+                    route_table_id: route_table.route_table_id,
+                  })
+                  ec2.create_route({
+                    destination_cidr_block: "::/0",
+                    gateway_id: ig.internet_gateway_id,
+                    route_table_id: route_table.route_table_id,
+                  })
                 # rescue Aws::IAM::Errors::EntityAlreadyExists => err
                 end
                 say "Created #{vpc_name} VPC."
@@ -124,63 +135,73 @@ module Shiprails
               unless completed_vpcs.include? vpc_name
                 begin
                   vpcs = ec2.describe_vpcs.vpcs
-                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == vpc_name }
+                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.try(:value) == vpc_name }
                   ecs_security_group_id = ec2.create_security_group({
                     group_name: "ecs-#{vpc_name}",
                     description: "ECS cluster instances",
                     vpc_id: vpc.vpc_id
                   }).group_id
+                  ecs_security_group = Aws::EC2::SecurityGroup.new(client: ec2, id: ecs_security_group_id)
                   elb_security_group_id = ec2.create_security_group({
                     group_name: "elb-#{vpc_name}",
                     description: "ELB instances",
                     vpc_id: vpc.vpc_id
                   }).group_id
+                  elb_security_group = Aws::EC2::SecurityGroup.new(client: ec2, id: elb_security_group_id)
                   public_web_security_group_id = ec2.create_security_group({
                     group_name: "public-web-#{vpc_name}",
                     description: "Public web ingress",
                     vpc_id: vpc.vpc_id
                   }).group_id
+                  public_web_security_group = Aws::EC2::SecurityGroup.new(client: ec2, id: public_web_security_group_id)
                   datastores_security_group_id = ec2.create_security_group({
                     group_name: "datastores-#{vpc_name}",
                     description: "RDS, ElastiCache, etc. instances",
                     vpc_id: vpc.vpc_id
                   }).group_id
+                  datastores_security_group = Aws::EC2::SecurityGroup.new(client: ec2, id: datastores_security_group_id)
                   team_access_security_group_id = ec2.create_security_group({
                     group_name: "team-access-#{vpc_name}",
                     description: "Ingress for team members",
                     vpc_id: vpc.vpc_id
                   }).group_id
+                  team_access_security_group = Aws::EC2::SecurityGroup.new(client: ec2, id: team_access_security_group_id)
                   # allow ECS instances to receive traffic from ELBs
-                  ec2.authorize_security_group_ingress({
-                    group_id: ecs_security_group_id,
-                    source_security_group_name: "elb-#{vpc_name}",
+                  ecs_security_group.authorize_ingress({
+                    ip_permissions: [
+                      {
+                        from_port: "-1",
+                        to_port: "-1",
+                        ip_protocol: "-1",
+                        user_id_group_pairs: [{
+                          group_id: elb_security_group.id,
+                          vpc_id: vpc.vpc_id,
+                        }],
+                      }
+                    ]
                   })
                   # allow public web group to receive traffic from the web
                   ec2.authorize_security_group_ingress({
                     group_id: public_web_security_group_id,
                     ip_permissions: [
                       {
-                        prefix_list_ids: [],
                         from_port: "80",
                         ip_ranges: [{
                           cidr_ip: "0.0.0.0/0"
                         }],
                         to_port: "80",
                         ip_protocol: "tcp",
-                        user_id_group_pairs: [],
                         ipv_6_ranges: [{
                           cidr_ipv_6: "::/0"
                         }]
                       },
                       {
-                        prefix_list_ids: [],
                         from_port: "443",
                         ip_ranges: [{
                           cidr_ip: "0.0.0.0/0"
                         }],
                         to_port: "443",
                         ip_protocol: "-1",
-                        user_id_group_pairs: [],
                         ipv_6_ranges: [{
                           cidr_ipv_6: "::/0"
                         }]
@@ -193,53 +214,27 @@ module Shiprails
                     group_id: team_access_security_group_id,
                     ip_permissions: [
                       {
-                        prefix_list_ids: [],
                         from_port: "-1",
                         ip_ranges: [{
                           cidr_ip: "#{current_ip_address}/32"
                         }],
                         to_port: "-1",
                         ip_protocol: "-1",
-                        user_id_group_pairs: [],
-                        ipv_6_ranges: []
                       },
                     ]
                   })
                   # allow ELBs to access ECS instances
-                  ec2.authorize_security_group_egress({
-                    group_id: elb_security_group_id,
-                    source_security_group_name: "ecs-#{vpc_name}",
-                  })
-                  # allow ECS instances to access the public web
-                  ec2.authorize_security_group_egress({
-                    group_id: ecs_security_group_id,
+                  elb_security_group.authorize_egress({
                     ip_permissions: [
                       {
-                        prefix_list_ids: [],
-                        from_port: "80",
-                        ip_ranges: [{
-                          cidr_ip: "0.0.0.0/0"
-                        }],
-                        to_port: "80",
-                        ip_protocol: "tcp",
-                        user_id_group_pairs: [],
-                        ipv_6_ranges: [{
-                          cidr_ipv_6: "::/0"
-                        }]
-                      },
-                      {
-                        prefix_list_ids: [],
-                        from_port: "443",
-                        ip_ranges: [{
-                          cidr_ip: "0.0.0.0/0"
-                        }],
-                        to_port: "443",
+                        from_port: "-1",
+                        to_port: "-1",
                         ip_protocol: "-1",
-                        user_id_group_pairs: [],
-                        ipv_6_ranges: [{
-                          cidr_ipv_6: "::/0"
-                        }]
-                      },
+                        user_id_group_pairs: [{
+                          group_id: ecs_security_group.id,
+                          vpc_id: vpc.vpc_id,
+                        }],
+                      }
                     ]
                   })
                 rescue Aws::EC2::Errors::InvalidGroupDuplicate => err
@@ -269,7 +264,10 @@ module Shiprails
                   })
                   File.open("#{project_name}.pem", 'w') { |file| file.write(key_pair.key_material) }
                   FileUtils.chmod 0600, "#{project_name}.pem"
+                rescue Aws::EC2::Errors::InvalidKeyPairDuplicate => err
+                  say "Key pair #{project_name} already exists."
                 end
+                created_key_pairs << key_pair_name
               end
             end
           end
@@ -320,6 +318,13 @@ module Shiprails
                   role = iam.create_role({
                     assume_role_policy_document: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":[\"ec2.amazonaws.com\"]},\"Action\":[\"sts:AssumeRole\"]}]}",
                     path: "/",
+                    role_name: role_name,
+                  })
+                  iam.create_instance_profile({
+                    instance_profile_name: role_name,
+                  })
+                  iam.add_role_to_instance_profile({
+                    instance_profile_name: role_name,
                     role_name: role_name,
                   })
                   iam.attach_role_policy({
@@ -496,7 +501,7 @@ module Shiprails
                   }).images
                   image = images.sort_by(&:name).last # get the newest version
                   vpcs = ec2.describe_vpcs.vpcs
-                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == "#{project_name}_#{environment_name}" }
+                  vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.try(:value) == "#{project_name}_#{environment_name}" }
                   security_groups = ec2.describe_security_groups({
                     filters: [
                       {
@@ -529,7 +534,7 @@ module Shiprails
                     user_data: Base64.encode64("#!/bin/bash
 echo ECS_CLUSTER=#{project_name}_#{environment_name} >> /etc/ecs/ecs.config"),
                   })
-                rescue Aws::AutoScaling::Errors::AlreadyExistsFault
+                rescue Aws::AutoScaling::Errors::AlreadyExists
                   say "TODO: update LaunchConfiguration with latest stuff.", :blue
                 end
                 created_launch_configurations << launch_configuration_name
@@ -551,7 +556,7 @@ echo ECS_CLUSTER=#{project_name}_#{environment_name} >> /etc/ecs/ecs.config"),
               unless created_auto_scaling_groups.include? group_name
                 ec2 = Aws::EC2::Client.new region: region_name.to_s
                 vpcs = ec2.describe_vpcs.vpcs
-                vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.value == "#{project_name}_#{environment_name}" }
+                vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.try(:value) == "#{project_name}_#{environment_name}" }
                 subnets = ec2.describe_subnets({
                   filters: [
                     {
@@ -576,7 +581,7 @@ echo ECS_CLUSTER=#{project_name}_#{environment_name} >> /etc/ecs/ecs.config"),
                     min_size: 1,
                     vpc_zone_identifier: subnets_in_region.join(',')
                   })
-                rescue Aws::AutoScaling::Errors::AlreadyExistsFault
+                rescue Aws::AutoScaling::Errors::AlreadyExists
                   say "TODO: update AutoScaling Group with latest stuff like LaunchConfiguration name.", :blue
                 end
                 created_auto_scaling_groups << group_name
