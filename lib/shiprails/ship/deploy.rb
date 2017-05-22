@@ -16,7 +16,7 @@ module Shiprails
       def check_git_status
         if git.status.added.any? or git.status.changed.any? or git.status.deleted.any?
           say "You have uncommitted changes. Commit and try again.", :red
-          # exit # TESTING
+          exit
         end
       end
 
@@ -27,12 +27,12 @@ module Shiprails
         configuration[:services].each do |service_name, service|
           image_name = "#{compose_project_name}_#{service[:image]}"
           service[:regions].each do |region_name, region|
-            aws_region = region_name.to_s
             region[:environments].each do |environment_name|
               next unless args.empty? or args.include?(environment_name)
-              result = `S3_CONFIG_BUCKET=#{s3_config_bucket} bundle exec config list #{environment_name}`
-              s3_config_revision = result.match(/#{environment_name} \(v([0-9]+)\)/)[1] rescue 0
-              commands << "docker build -t #{image_name}_#{environment_name} --build-arg AWS_ACCESS_KEY_ID='#{aws_access_key_id}' --build-arg AWS_SECRET_ACCESS_KEY='#{aws_access_key_secret}' --build-arg AWS_REGION='#{aws_region}' --build-arg S3_CONFIG_BUCKET='#{s3_config_bucket}' --build-arg S3_CONFIG_ENVIRONMENT='#{environment_name}' --build-arg S3_CONFIG_REVISION='#{s3_config_revision}' -f Dockerfile.production ."
+              s3 = Aws::S3::Client.new(region: region_name.to_s)
+              objects = s3.list_objects_v2(bucket: s3_config_bucket, prefix: environment_name)
+              s3_config_revision = objects.contents.map{ |object| object.key[/\d+/].to_i }.max || 0
+              commands << "docker build -t #{image_name}_#{environment_name} --build-arg AWS_ACCESS_KEY_ID='#{aws_access_key_id}' --build-arg AWS_SECRET_ACCESS_KEY='#{aws_access_key_secret}' --build-arg AWS_REGION='#{region_name.to_s}' --build-arg S3_CONFIG_BUCKET='#{s3_config_bucket}' --build-arg S3_CONFIG_ENVIRONMENT='#{environment_name}' --build-arg S3_CONFIG_REVISION='#{s3_config_revision}' -f Dockerfile.production ."
             end
           end
         end
