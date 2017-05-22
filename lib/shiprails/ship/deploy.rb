@@ -1,5 +1,6 @@
 require "active_support/all"
 require "aws-sdk"
+require "base64"
 require "git"
 require "thor/group"
 
@@ -68,7 +69,10 @@ module Shiprails
           end
         end
         repository_urls_to_regions.each do |repository_url, region|
-          run "`aws ecr get-login --region #{region}`"
+          ecr = Aws::ECR::Client.new({ region: region.to_s })
+          authorization_data = ecr.get_authorization_token.authorization_data.first
+          credentials = Base64.decode64(authorization_data.authorization_token).split(':')
+          run "docker login -u #{credentials.first} -p #{credentials.last} -e none #{authorization_data.proxy_endpoint}"
           run "docker push #{repository_url}:#{git_sha}" # TODO: check that this succeeded
         end
         say "Push complete.", :green
