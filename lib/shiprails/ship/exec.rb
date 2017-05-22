@@ -102,26 +102,44 @@ module Shiprails
         # get its current security groups to restory later
         security_group_ids = ec2_instance.security_groups.map(&:group_id)
 
-        # create security group for us
-        security_group_response = ec2.create_security_group({
-          group_name: "shiprails-exec-#{cluster}-#{Time.now.to_i}",
-          description: "SSH access to run interactive command (created by #{`whoami`.rstrip} via shiprails)",
-          vpc_id: ec2_instance.vpc_id
-        })
-        # get our public ip
-        my_ip_address = open('http://whatismyip.akamai.com').read
-        # authorize SSH access from our public ip
-        ec2.authorize_security_group_ingress({
-          group_id: security_group_response.group_id,
-          ip_protocol: "tcp",
-          from_port: 22,
-          to_port: 22,
-          cidr_ip: "#{my_ip_address}/32"
-        })
-        # add ec2 instance to our new security group
+        vpcs = ec2.describe_vpcs.vpcs
+        vpc = vpcs.find{ |v| v.tags.find{|t| t.key == "Name" }.try(:value) == cluster }
+        vpc_security_groups = ec2.describe_security_groups({
+          filters: [
+            {
+              name: "vpc-id",
+              values: [
+                vpc.vpc_id
+              ],
+            },
+          ],
+        }).security_groups
+        team_access_security_group = vpc_security_groups.find{ |group| group.group_name == "team-access-#{cluster}" }
+        if team_access_security_group.nil?
+          # create security group for us
+          team_access_security_group = ec2.create_security_group({
+            group_name: "team-access-#{cluster}",
+            description: "Ingress for team members",
+            vpc_id: vpc.vpc_id
+          })
+        end
+        begin
+          # get our public ip
+          my_ip_address = open('http://whatismyip.akamai.com').read
+          # authorize SSH access from our public ip
+          ec2.authorize_security_group_ingress({
+            group_id: team_access_security_group.group_id,
+            ip_protocol: "tcp",
+            from_port: 22,
+            to_port: 22,
+            cidr_ip: "#{my_ip_address}/32"
+          })
+        rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
+        end
+        # add ec2 instance to team access security group
         ec2.modify_instance_attribute({
           instance_id: ec2_instance_id,
-          groups: security_group_ids + [security_group_response.group_id]
+          groups: security_group_ids + [team_access_security_group.group_id]
         })
 
         # build the command we'll run on the instance
@@ -141,11 +159,12 @@ module Shiprails
         command_string = command_array.join ' '
 
         say "Waiting for AWS to setup networking..."
-        sleep 5 # AWS just needs a little bit to setup networking
+        # sleep 5 # AWS just needs a little bit to setup networking
         say "Connecting #{ssh_user}@#{ec2_instance.public_ip_address}..."
         say "Executing: $ #{command_string}"
         system "ssh -o ConnectTimeout=15 -o 'StrictHostKeyChecking no' -t -i #{ssh_private_key_path} #{ssh_user}@#{ec2_instance.public_ip_address} '#{command_string}'"
       rescue => e
+        puts e.inspect
         say "Error: #{e.message}", :red
       ensure
         say "Cleaning up SSH access..."
@@ -154,8 +173,6 @@ module Shiprails
           instance_id: ec2_instance_id,
           groups: security_group_ids
         }) rescue nil
-        # remove our access security group
-        ec2.delete_security_group({ group_id: security_group_response.group_id }) rescue nil
         say "Done.", :green
       end
 

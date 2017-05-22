@@ -209,7 +209,7 @@ module Shiprails
                     ]
                   })
                   # allow datastore instances to receive traffic from ECS instances
-                  current_ip_address = `curl http://ipecho.net/plain`
+                  current_ip_address = open('http://whatismyip.akamai.com').read
                   ec2.authorize_security_group_ingress({
                     group_id: team_access_security_group_id,
                     ip_permissions: [
