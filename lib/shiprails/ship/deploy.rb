@@ -33,12 +33,32 @@ module Shiprails
               s3 = Aws::S3::Client.new(region: region_name.to_s)
               objects = s3.list_objects_v2(bucket: s3_config_bucket, prefix: environment_name)
               s3_config_revision = objects.contents.map{ |object| object.key[/\d+/].to_i }.max || 0
-              commands << "docker build -t #{image_name}_#{environment_name} --build-arg AWS_ACCESS_KEY_ID='#{aws_access_key_id}' --build-arg AWS_SECRET_ACCESS_KEY='#{aws_access_key_secret}' --build-arg AWS_REGION='#{region_name.to_s}' --build-arg S3_CONFIG_BUCKET='#{s3_config_bucket}' --build-arg S3_CONFIG_ENVIRONMENT='#{environment_name}' --build-arg S3_CONFIG_REVISION='#{s3_config_revision}' -f Dockerfile.production ."
+              ecr = Aws::ECR::Client.new({ region: region_name.to_s })
+              authorization_data = ecr.get_authorization_token.authorization_data.first
+              credentials = Base64.decode64(authorization_data.authorization_token).split(':')
+              exit(1) unless run "docker login -u #{credentials.first} -p #{credentials.last} -e none #{authorization_data.proxy_endpoint}"
+              repository_name = region[:repository_url].split('/').drop(1).join('/')
+              images = ecr.describe_images(repository_name: repository_name).image_details
+              tags = images.map(&:image_tags).flatten
+              shas = git.log(1000).map(&:sha) # get last 1000 commits
+              last_built_sha = nil
+              shas.each do |sha|
+                if tags.include?(sha)
+                  last_built_sha = sha
+                  break
+                end
+              end
+              unless last_built_sha.nil?
+                exit(1) unless run "docker pull #{region[:repository_url]}:#{last_built_sha}"
+              end
+              commands << "docker build -t #{image_name}_#{environment_name} --build-arg AWS_ACCESS_KEY_ID='#{aws_access_key_id}' --build-arg AWS_SECRET_ACCESS_KEY='#{aws_access_key_secret}' --build-arg AWS_REGION='#{region_name.to_s}' --build-arg S3_CONFIG_BUCKET='#{s3_config_bucket}' --build-arg S3_CONFIG_ENVIRONMENT='#{environment_name}' --build-arg S3_CONFIG_REVISION='#{s3_config_revision}' -f #{dockerfile_path} ."
             end
           end
         end
         commands.uniq!
-        commands.each { |c| run c } # TODO: check that this succeeded
+        commands.each do |c|
+          exit(1) unless run c
+        end
         say "Build complete", :green
       end
 
@@ -56,7 +76,9 @@ module Shiprails
           end
         end
         commands.uniq!
-        commands.each { |c| run c } # TODO: check that this succeeded
+        commands.each do |c|
+          exit(1) unless run c
+        end
         say "Tagging complete.", :green
       end
 
@@ -72,8 +94,8 @@ module Shiprails
           ecr = Aws::ECR::Client.new({ region: region.to_s })
           authorization_data = ecr.get_authorization_token.authorization_data.first
           credentials = Base64.decode64(authorization_data.authorization_token).split(':')
-          run "docker login -u #{credentials.first} -p #{credentials.last} -e none #{authorization_data.proxy_endpoint}"
-          run "docker push #{repository_url}:#{git_sha}" # TODO: check that this succeeded
+          exit(1) unless run "docker login -u #{credentials.first} -p #{credentials.last} -e none #{authorization_data.proxy_endpoint}"
+          exit(1) unless run "docker push #{repository_url}:#{git_sha}"
         end
         say "Push complete.", :green
       end
@@ -175,6 +197,10 @@ module Shiprails
 
       def configuration
         YAML.load(File.read("#{options[:path]}/.shiprails.yml")).deep_symbolize_keys
+      end
+
+      def dockerfile_path
+        configuration[:dockerfile_path] || "Dockerfile.production"
       end
 
       def git
