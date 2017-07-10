@@ -36,7 +36,7 @@ module Shiprails
               ecr = Aws::ECR::Client.new({ region: region_name.to_s })
               authorization_data = ecr.get_authorization_token.authorization_data.first
               credentials = Base64.decode64(authorization_data.authorization_token).split(':')
-              exit(1) unless run "docker login -u #{credentials.first} -p #{credentials.last} -e none #{authorization_data.proxy_endpoint}"
+              exit(1) unless run "docker login -u #{credentials.first} -p #{credentials.last} #{authorization_data.proxy_endpoint}"
               repository_name = region[:repository_url].split('/').drop(1).join('/')
               images = ecr.describe_images(repository_name: repository_name).image_details
               tags = images.map(&:image_tags).flatten
@@ -94,7 +94,7 @@ module Shiprails
           ecr = Aws::ECR::Client.new({ region: region.to_s })
           authorization_data = ecr.get_authorization_token.authorization_data.first
           credentials = Base64.decode64(authorization_data.authorization_token).split(':')
-          exit(1) unless run "docker login -u #{credentials.first} -p #{credentials.last} -e none #{authorization_data.proxy_endpoint}"
+          exit(1) unless run "docker login -u #{credentials.first} -p #{credentials.last} #{authorization_data.proxy_endpoint}"
           exit(1) unless run "docker push #{repository_url}:#{git_sha}"
         end
         say "Push complete.", :green
