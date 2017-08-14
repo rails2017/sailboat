@@ -24,6 +24,8 @@ module Shiprails
       class_option "private-key",
         aliases: ["-pk"],
         desc: "Specify the AWS SSH private key path"
+      class_option "task-arn",
+        desc: "Specify the ECS task ARN"
 
       def run_command
         cluster_name = "#{project_name}_#{environment}"
@@ -92,7 +94,13 @@ module Shiprails
         task_definition_arn = task_descriptions.tasks.first.task_definition_arn
         task_definition_name = task_definition_arn.split('/').last
         container_instance_arn = task_descriptions.tasks.first.container_instance_arn
-        task_definition_description = ecs.describe_task_definition({task_definition: task_definition_name})
+
+        task_arn = options['task-arn']
+        if task_arn.nil?
+          task_definition_description = ecs.describe_task_definition({task_definition: task_definition_name})
+        else
+          task_definition_description = ecs.describe_task_definition({task_definition: task_arn})
+        end
 
         say "Setting up EC2 instance for SSH..."
         # with the instance ARN let's grab the intance id

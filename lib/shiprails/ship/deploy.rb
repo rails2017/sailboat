@@ -108,6 +108,7 @@ module Shiprails
 
       def update_ecs_tasks
         perform_callbacks :before_update_ecs_tasks
+        task_arn = nil
         say "Updating ECS tasks..."
         configuration[:services].each do |service_name, service|
           image_name = "#{project_name}_#{service_name}"
@@ -146,12 +147,15 @@ module Shiprails
                 say "Updated #{service_name} container (#{image_name})."
               end
               task_definition_response = ecs.register_task_definition(task_definition)
+              if service_name == :app
+                task_arn = task_definition_response.task_definition.task_definition_arn
+              end
               say "Updated #{task_name}.", :green
             end
           end
         end
         say "ECS tasks updated.", :green
-        perform_callbacks :after_update_ecs_tasks
+        perform_callbacks :after_update_ecs_tasks, task_arn
       end
 
       def update_ecs_services
@@ -237,11 +241,13 @@ module Shiprails
         configuration[:config_s3_bucket]
       end
 
-      def perform_callbacks(stage_name)
+      def perform_callbacks(stage_name, task_arn=nil)
         @_callbacks ||= configuration[:callbacks] || {}
         if @_callbacks.key?(stage_name)
-          command = @_callbacks[stage_name]
-          wrapped_command = "ship exec -e #{environment} #{command}"
+          command = ["ship exec -e #{environment}"]
+          command << "--task-arn #{task_arn}" unless task_arn.nil?
+          command << @_callbacks[stage_name]
+          wrapped_command = command.join ' '
           say "#{stage_name.to_s}: #{wrapped_command}"
           result = run(wrapped_command)
           exit(1) unless result
