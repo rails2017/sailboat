@@ -22,6 +22,7 @@ module Shiprails
       end
 
       def build_docker_images
+        perform_callbacks :before_build_docker_images
         say "Building images..."
         s3_config_bucket = configuration[:config_s3_bucket].to_s
         commands = []
@@ -60,9 +61,11 @@ module Shiprails
           exit(1) unless run c
         end
         say "Build complete", :green
+        perform_callbacks :after_build_docker_images
       end
 
       def tag_docker_images
+        perform_callbacks :before_tag_docker_images
         say "Tagging images..."
         commands = []
         configuration[:services].each do |service_name, service|
@@ -80,9 +83,11 @@ module Shiprails
           exit(1) unless run c
         end
         say "Tagging complete.", :green
+        perform_callbacks :after_tag_docker_images
       end
 
       def push_docker_images
+        perform_callbacks :before_push_docker_images
         say "Pushing images..."
         repository_urls_to_regions = {}
         configuration[:services].each do |service_name, service|
@@ -98,9 +103,11 @@ module Shiprails
           exit(1) unless run "docker push #{repository_url}:#{git_sha}"
         end
         say "Push complete.", :green
+        perform_callbacks :after_push_docker_images
       end
 
       def update_ecs_tasks
+        perform_callbacks :before_update_ecs_tasks
         say "Updating ECS tasks..."
         configuration[:services].each do |service_name, service|
           image_name = "#{project_name}_#{service_name}"
@@ -144,9 +151,11 @@ module Shiprails
           end
         end
         say "ECS tasks updated.", :green
+        perform_callbacks :after_update_ecs_tasks
       end
 
       def update_ecs_services
+        perform_callbacks :before_update_ecs_services
         say "Updating ECS services..."
         configuration[:services].each do |service_name, service|
           service[:regions].each do |region_name, region|
@@ -179,6 +188,7 @@ module Shiprails
           end
         end
         say "ECS services updated.", :green
+        perform_callbacks :after_update_ecs_services
       end
 
       def done
@@ -203,6 +213,10 @@ module Shiprails
         configuration[:dockerfile_path] || "Dockerfile.production"
       end
 
+      def environment
+        args.first
+      end
+
       def git
         @_git ||= Git.open(Dir.getwd)
       end
@@ -221,6 +235,17 @@ module Shiprails
 
       def config_s3_bucket
         configuration[:config_s3_bucket]
+      end
+
+      def perform_callbacks(stage_name)
+        @_callbacks ||= configuration[:callbacks] || {}
+        if @_callbacks.key?(stage_name)
+          command = @_callbacks[stage_name]
+          wrapped_command = "ship exec -e #{environment} #{command}"
+          say "#{stage_name.to_s}: #{wrapped_command}"
+          result = run(wrapped_command)
+          exit(1) unless result
+        end
       end
 
     end
