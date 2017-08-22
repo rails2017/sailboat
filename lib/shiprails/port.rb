@@ -21,6 +21,7 @@ module Shiprails
       default: false,
       desc: "Remove container changes after use",
       type: :boolean
+
     def exec(*command_args)
       build_command_args = ["docker-compose", "run"]
       build_command_args << "--rm" unless options['no-rm']
@@ -41,18 +42,31 @@ module Shiprails
 
     if commands = configuration[:exec]
       commands.each do |name, command|
-        desc name, "port exec #{command}"
-        method_option "no-rm",
-          default: false,
-          desc: "Remove container changes after use",
-          type: :boolean
-        define_method name.to_sym do |*command_args|
-          build_command_args = ["docker-compose", "run"]
-          build_command_args << "--rm" unless options['no-rm']
-          build_command_args << "app"
-          build_command_args += command.split(' ') + command_args
-          command_string = build_command_args.join(' ')
-          run command_string
+        unless command.is_a? String
+          desc name, "port exec #{command}"
+          define_method name.to_sym do |*command_args|
+            build_command_args = ["docker-compose", "run"]
+            build_command_args << "--rm" if command[:rm]
+            build_command_args << command[:service] || "app"
+            build_command_args += command[:command].split(' ') unless command[:command].nil?
+            build_command_args += command_args
+            command_string = build_command_args.join(' ')
+            run command_string
+          end
+        else
+          desc name, "port exec #{command}"
+          method_option "no-rm",
+            default: false,
+            desc: "Remove container changes after use",
+            type: :boolean
+          define_method name.to_sym do |*command_args|
+            build_command_args = ["docker-compose", "run"]
+            build_command_args << "--rm" unless options['no-rm']
+            build_command_args << "app"
+            build_command_args += command.split(' ') + command_args
+            command_string = build_command_args.join(' ')
+            run command_string
+          end
         end
       end
     end
